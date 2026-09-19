@@ -9,7 +9,7 @@ import { mapToBlocks, mapError } from '../engine/mapper.js';
 import { voxelize, buildMesh, meshToObj, trim } from '../engine/mesh.js';
 import { write, read, nbt } from '../engine/nbt.js';
 import { buildStructure, splitVolume, loadCommands } from '../engine/mcstructure.js';
-import { zip, crc32, uuid4 } from '../engine/zip.js';
+import { zip, crc32, uuid4, canDeflate } from '../engine/zip.js';
 import { buildMcPack, blockListText, blockListCsv, safeName } from '../engine/exporters.js';
 import { writeFileSync, mkdirSync } from 'node:fs';
 
@@ -417,15 +417,28 @@ section('zip and pack');
   ok('crc32 of empty', crc32(new Uint8Array(0)) === 0);
   ok('uuid4 shape', /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(uuid4()));
 
-  const z = zip([{ name: 'a.txt', data: 'hello' }, { name: 'dir/b.bin', data: new Uint8Array([1, 2, 3]) }]);
+  const z = await zip([{ name: 'a.txt', data: 'hello' }, { name: 'dir/b.bin', data: new Uint8Array([1, 2, 3]) }]);
   const dv = new DataView(z.buffer);
   ok('local header signature', dv.getUint32(0, true) === 0x04034b50);
   ok('eocd signature', dv.getUint32(z.length - 22, true) === 0x06054b50);
   ok('eocd entry count', dv.getUint16(z.length - 22 + 10, true) === 2);
+  ok('tiny entries stay stored', dv.getUint16(8, true) === 0);
+
+  ok('this platform can deflate', canDeflate);
+  const bulk = new Uint8Array(200000);
+  for (let i = 0; i < bulk.length; i += 4) bulk[i] = 0xff; // compressible, like a void-heavy layer
+  const zc = await zip([{ name: 'big.bin', data: bulk }]);
+  const zv = new DataView(zc.buffer);
+  ok('large entries are deflated', zv.getUint16(8, true) === 8);
+  ok('deflate actually shrinks the archive', zc.length < bulk.length / 10,
+    `${zc.length} vs ${bulk.length}`);
+  ok('stored sizes are recorded both ways',
+    zv.getUint32(22, true) === bulk.length && zv.getUint32(18, true) < bulk.length);
+  ok('crc is of the original bytes, not the deflated bytes', zv.getUint32(14, true) === crc32(bulk));
 
   const grid = mapToBlocks(ramp(80, 40), blocks, { dither: 'floyd' });
   const vox = voxelize(grid, { mode: 'wall', depth: 1 });
-  const pack = buildMcPack(vox, blocks, { name: 'Test Build!', namespace: 'imagecraft', maxXZ: 64 });
+  const pack = await buildMcPack(vox, blocks, { name: 'Test Build!', namespace: 'imagecraft', maxXZ: 64 });
   ok('pack has manifest first', pack.files[0] === 'manifest.json');
   ok('pack has a structure per tile',
     pack.files.filter(f => f.endsWith('.mcstructure')).length === pack.tiles.length);
@@ -440,6 +453,61 @@ section('zip and pack');
   const txt = blockListText(grid.counts, blocks, 'Test');
   ok('material list lists every kind', txt.split('\n').length >= grid.counts.size + 4);
   ok('material csv header', blockListCsv(grid.counts, blocks).startsWith('block,id,count'));
+}
+
+// ---------------------------------------------------------------- angled export
+section('angled exports');
+{
+  const pix = ramp(96, 64);
+  const grid = mapToBlocks(pix, blocks, { dither: 'floyd' });
+  const vox = voxelize(grid, { mode: 'plane', tilt: 45, yaw: 25, depth: 1, relief: 0 });
+  const tiles = splitVolume(vox, 64, 384);
+
+  // rebuild the world from the exported tiles and compare block for block
+  const world = new Map();
+  for (const t of tiles) {
+    const r = read(buildStructure(t.vox, blocks, {})).root;
+    const [SX, SY, SZ] = r.v.size.v.map(x => x.v);
+    const pal = r.v.structure.v.palette.v.default.v.block_palette.v.map(e => e.v.name.v);
+    const l0 = r.v.structure.v.block_indices.v[0].v;
+    if (l0.length !== SX * SY * SZ) { fail++; console.log('  FAIL layer length on a tile'); }
+    for (let x = 0; x < SX; x++) for (let y = 0; y < SY; y++) for (let z = 0; z < SZ; z++) {
+      const idx = l0[(x * SY + y) * SZ + z].v;
+      if (idx >= 0) world.set(`${x + t.ox},${y + t.oy},${z + t.oz}`, pal[idx]);
+    }
+  }
+  let miss = 0, wrong = 0, extra = 0, n = 0;
+  for (let x = 0; x < vox.sx; x++) for (let y = 0; y < vox.sy; y++) for (let z = 0; z < vox.sz; z++) {
+    const cv = vox.cells[(x * vox.sy + y) * vox.sz + z];
+    const got = world.get(`${x},${y},${z}`);
+    if (cv >= 0) { n++; if (!got) miss++; else if (got !== blocks[cv].bedrock) wrong++; }
+    else if (got) extra++;
+  }
+  ok('a tilted build survives tiling and export intact',
+    miss === 0 && wrong === 0 && extra === 0 && n === vox.count, `${miss}/${wrong}/${extra}`);
+
+  // shrink-wrap: no tile should carry an empty outer slab
+  let padded = 0;
+  for (const t of tiles) {
+    const { sx: a, sy: b, sz: c, cells: cc } = t.vox;
+    const has = (test) => { for (let i = 0; i < a * b * c; i++) if (cc[i] >= 0 && test(i)) return true; return false; };
+    const faceX0 = has(i => Math.floor(i / (b * c)) === 0);
+    const faceX1 = has(i => Math.floor(i / (b * c)) === a - 1);
+    const faceY0 = has(i => Math.floor(i / c) % b === 0);
+    const faceY1 = has(i => Math.floor(i / c) % b === b - 1);
+    const faceZ0 = has(i => i % c === 0);
+    const faceZ1 = has(i => i % c === c - 1);
+    if (!(faceX0 && faceX1 && faceY0 && faceY1 && faceZ0 && faceZ1)) padded++;
+  }
+  ok('every tile is shrink-wrapped to its blocks', padded === 0, String(padded));
+  ok('no tile exceeds the structure block limit',
+    tiles.every(t => t.vox.sx <= 64 && t.vox.sz <= 64 && t.vox.sy <= 384));
+
+  const packed = await buildMcPack(vox, blocks, { name: 'angled', namespace: 'imagecraft', maxXZ: 64 });
+  ok('an angled pack is compressed, not megabytes of void',
+    packed.bytes.length < packed.raw / 20, `${packed.bytes.length} of ${packed.raw} raw`);
+  ok('offsets are folded into the load commands',
+    packed.commands.split('\n').filter(l => l.startsWith('/structure load')).length === tiles.length);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

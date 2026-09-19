@@ -1,5 +1,13 @@
-// zip.js — minimal store-only ZIP writer. A .mcpack is just a renamed zip, and
-// Bedrock reads stored (uncompressed) entries fine, so there is no deflate here.
+// zip.js — minimal ZIP writer. A .mcpack is a renamed zip.
+//
+// Entries are deflated with the platform's own CompressionStream (present in
+// every current browser and in Node 18+), with no library and no fallback
+// dependency — if it is missing the entry is stored instead. Compression is not
+// cosmetic here: a structure file is a dense array of one int per cell, and an
+// angled build is mostly structure void, so the raw bytes are enormous and
+// extremely repetitive. Deflating takes a tilted plane from tens of megabytes
+// to a fraction of one, which is the difference between a pack the game imports
+// and a pack it does not.
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
@@ -17,6 +25,27 @@ export function crc32(bytes) {
   return (c ^ 0xFFFFFFFF) >>> 0;
 }
 
+export const canDeflate = typeof CompressionStream !== 'undefined';
+
+async function deflateRaw(bytes) {
+  const cs = new CompressionStream('deflate-raw');
+  const w = cs.writable.getWriter();
+  w.write(bytes);
+  w.close();
+  const chunks = [];
+  let total = 0;
+  const r = cs.readable.getReader();
+  for (;;) {
+    const { value, done } = await r.read();
+    if (done) break;
+    chunks.push(value); total += value.length;
+  }
+  const out = new Uint8Array(total);
+  let p = 0;
+  for (const c of chunks) { out.set(c, p); p += c.length; }
+  return out;
+}
+
 function dosTime(d) {
   const t = ((d.getHours() & 31) << 11) | ((d.getMinutes() & 63) << 5) | ((d.getSeconds() / 2) & 31);
   const dt = (((d.getFullYear() - 1980) & 127) << 9) | (((d.getMonth() + 1) & 15) << 5) | (d.getDate() & 31);
@@ -25,11 +54,13 @@ function dosTime(d) {
 
 /**
  * files: [{ name:'manifest.json', data:Uint8Array|string }]
- * returns Uint8Array of the whole archive.
+ * opts:  { date, compress:true }
+ * returns a Uint8Array of the whole archive.
  */
-export function zip(files, date = new Date()) {
+export async function zip(files, opts = {}) {
   const enc = new TextEncoder();
-  const [time, dt] = dosTime(date);
+  const compress = opts.compress !== false && canDeflate;
+  const [time, dt] = dosTime(opts.date || new Date());
   const parts = [];
   const central = [];
   let offset = 0;
@@ -39,16 +70,22 @@ export function zip(files, date = new Date()) {
     const name = enc.encode(f.name);
     const crc = crc32(data);
 
+    let body = data, method = 0;
+    if (compress && data.length > 64) {
+      const packed = await deflateRaw(data);
+      if (packed.length < data.length) { body = packed; method = 8; }
+    }
+
     const lh = new Uint8Array(30 + name.length);
     const lv = new DataView(lh.buffer);
     lv.setUint32(0, 0x04034b50, true);
     lv.setUint16(4, 20, true);   // version needed
     lv.setUint16(6, 0, true);    // flags
-    lv.setUint16(8, 0, true);    // method: store
+    lv.setUint16(8, method, true);
     lv.setUint16(10, time, true);
     lv.setUint16(12, dt, true);
     lv.setUint32(14, crc, true);
-    lv.setUint32(18, data.length, true);
+    lv.setUint32(18, body.length, true);
     lv.setUint32(22, data.length, true);
     lv.setUint16(26, name.length, true);
     lv.setUint16(28, 0, true);
@@ -60,19 +97,19 @@ export function zip(files, date = new Date()) {
     cv.setUint16(4, 20, true);   // version made by
     cv.setUint16(6, 20, true);   // version needed
     cv.setUint16(8, 0, true);
-    cv.setUint16(10, 0, true);
+    cv.setUint16(10, method, true);
     cv.setUint16(12, time, true);
     cv.setUint16(14, dt, true);
     cv.setUint32(16, crc, true);
-    cv.setUint32(20, data.length, true);
+    cv.setUint32(20, body.length, true);
     cv.setUint32(24, data.length, true);
     cv.setUint16(28, name.length, true);
     cv.setUint32(42, offset, true);
     cd.set(name, 46);
 
-    parts.push(lh, data);
+    parts.push(lh, body);
     central.push(cd);
-    offset += lh.length + data.length;
+    offset += lh.length + body.length;
   }
 
   const cdSize = central.reduce((a, c) => a + c.length, 0);
@@ -84,8 +121,7 @@ export function zip(files, date = new Date()) {
   ev.setUint32(12, cdSize, true);
   ev.setUint32(16, offset, true);
 
-  const total = offset + cdSize + 22;
-  const out = new Uint8Array(total);
+  const out = new Uint8Array(offset + cdSize + 22);
   let p = 0;
   for (const b of parts) { out.set(b, p); p += b.length; }
   for (const b of central) { out.set(b, p); p += b.length; }

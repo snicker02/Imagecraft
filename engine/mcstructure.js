@@ -101,17 +101,28 @@ export function splitVolume(vox, maxXZ = MAX_XZ, maxY = MAX_Y) {
       for (let tz = 0; tz < nz; tz++) {
         const ox = tx * maxXZ, oy = ty * maxY, oz = tz * maxXZ;
         const w = Math.min(maxXZ, sx - ox), hgt = Math.min(maxY, sy - oy), d = Math.min(maxXZ, sz - oz);
-        const sub = new Int16Array(w * hgt * d).fill(-1);
-        let used = 0;
+
+        // Shrink-wrap the tile around the blocks it holds. An angled build
+        // leaves most of its bounding box as structure void, and every one of
+        // those cells still costs an int in the file, so this is the difference
+        // between a lean pack and a huge one.
+        let x0 = w, y0 = hgt, z0 = d, x1 = -1, y1 = -1, z1 = -1, used = 0;
         for (let x = 0; x < w; x++) for (let y = 0; y < hgt; y++) for (let z = 0; z < d; z++) {
-          const v = cells[((x + ox) * sy + (y + oy)) * sz + (z + oz)];
-          sub[(x * hgt + y) * d + z] = v;
-          if (v >= 0) used++;
+          if (cells[((x + ox) * sy + (y + oy)) * sz + (z + oz)] < 0) continue;
+          used++;
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (y < y0) y0 = y; if (y > y1) y1 = y;
+          if (z < z0) z0 = z; if (z > z1) z1 = z;
         }
         if (!used) continue;
+        const nw = x1 - x0 + 1, nh = y1 - y0 + 1, nd = z1 - z0 + 1;
+        const sub = new Int16Array(nw * nh * nd).fill(-1);
+        for (let x = 0; x < nw; x++) for (let y = 0; y < nh; y++) for (let z = 0; z < nd; z++) {
+          sub[(x * nh + y) * nd + z] = cells[((x + x0 + ox) * sy + (y + y0 + oy)) * sz + (z + z0 + oz)];
+        }
         tiles.push({
-          ox, oy, oz, row: ty, col: tx, layer: tz, blocks: used,
-          vox: { sx: w, sy: hgt, sz: d, cells: sub, count: used },
+          ox: ox + x0, oy: oy + y0, oz: oz + z0, row: ty, col: tx, layer: tz, blocks: used,
+          vox: { sx: nw, sy: nh, sz: nd, cells: sub, count: used },
         });
       }
     }

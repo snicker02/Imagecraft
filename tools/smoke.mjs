@@ -158,7 +158,7 @@ click($('btn-list'));
 click($('btn-structure'));
 click($('btn-mcpack'));
 click($('btn-obj'));
-await settle();
+await new Promise(r => setTimeout(r, 400));
 ok('exports fire with the right filenames',
   saved.some(n => n.endsWith('_materials.txt')) && saved.some(n => n.endsWith('.mcstructure')) &&
   saved.some(n => n.endsWith('.mcpack')) && saved.some(n => n.endsWith('.obj')), saved.join(', '));

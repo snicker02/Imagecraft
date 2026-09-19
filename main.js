@@ -804,16 +804,26 @@ function exportStructure() {
     : `Saved ${S.vox.sx}×${S.vox.sy}×${S.vox.sz}.`, big);
 }
 
-function exportPack() {
+async function exportPack() {
   if (!guard()) return;
+  const btn = $('btn-mcpack');
   const name = $('name').value || 'imagecraft';
-  const pack = Ex.buildMcPack(S.vox, S.blocks, {
-    name, namespace: 'imagecraft', legacy: S.legacy,
-    fillEmptyWithAir: S.airfill, maxXZ: S.maxtile,
-  });
-  Ex.download(`${Ex.safeName(name)}.mcpack`, pack.bytes);
-  toast(`${pack.tiles.length} structure${pack.tiles.length === 1 ? '' : 's'} packed. ` +
-    `Open the file to import, then run the commands in README.txt.`);
+  btn.disabled = true;
+  btn.textContent = 'Packing…';
+  try {
+    const pack = await Ex.buildMcPack(S.vox, S.blocks, {
+      name, namespace: 'imagecraft', legacy: S.legacy,
+      fillEmptyWithAir: S.airfill, maxXZ: S.maxtile,
+    });
+    Ex.download(`${Ex.safeName(name)}.mcpack`, pack.bytes);
+    const mb = pack.bytes.length / 1048576;
+    toast(`${pack.tiles.length} structure${pack.tiles.length === 1 ? '' : 's'}, ` +
+      `${mb < 1 ? Math.round(pack.bytes.length / 1024) + ' kB' : mb.toFixed(1) + ' MB'}. ` +
+      `Open the file to import, then run the commands in README.txt.`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Export .mcpack';
+  }
 }
 
 // ---------------------------------------------------------------- boot

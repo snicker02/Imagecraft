@@ -20,7 +20,7 @@ export function safeName(s) {
  * Build a behaviour pack containing one structure per tile.
  * Returns { bytes, tiles, commands, files:[names] }
  */
-export function buildMcPack(vox, blocks, opts) {
+export async function buildMcPack(vox, blocks, opts) {
   const base = safeName(opts.name);
   const ns = safeName(opts.namespace || 'imagecraft');
   const tiles = splitVolume(vox, opts.maxXZ || MAX_XZ, opts.maxY || MAX_Y);
@@ -49,7 +49,9 @@ export function buildMcPack(vox, blocks, opts) {
 
   files.unshift({ name: 'manifest.json', data: JSON.stringify(manifest, null, 2) });
   files.push({ name: 'README.txt', data: readme(commands, ns, base, tiles) });
-  return { bytes: zip(files), tiles, commands, files: files.map(f => f.name) };
+  const raw = files.reduce((a, f) => a + (typeof f.data === 'string' ? f.data.length : f.data.length), 0);
+  const bytes = await zip(files);
+  return { bytes, tiles, commands, raw, files: files.map(f => f.name) };
 }
 
 function readme(commands, ns, base, tiles) {

@@ -31,7 +31,7 @@ engine/
   renderer.js         WebGL1 orbit viewer
   nbt.js              little-endian NBT reader and writer
   mcstructure.js      .mcstructure assembly, 64³ tiling, /structure load commands
-  zip.js              store-only ZIP + CRC32 (a .mcpack is a renamed zip)
+  zip.js              ZIP + CRC32, deflated via CompressionStream (a .mcpack is a renamed zip)
   exporters.js        pack assembly, materials list, PNG, downloads
 tools/
   validate.mjs        headless engine checks — node tools/validate.mjs
@@ -59,6 +59,21 @@ angle leaves pin-holes; `tools/validate.mjs` flood-fills 55 tilt/turn pairs to
 prove it. One caveat that is geometry, not a bug: at a turn that is not a right
 angle the picture is resampled onto a cubic lattice, so on very small grids a
 cell can merge into its neighbour. At build sizes nothing is lost.
+
+## Pack size
+
+A .mcstructure stores one integer per cell of its bounding box, whether or not
+there is a block there. A wall is one cell deep and completely full, so its file
+is tiny. An angled plane fills maybe 3% of its bounding box and the other 97%
+still costs bytes — a 256-wide picture at 45 degrees came to 36 MB uncompressed,
+against 0.4 MB for the same picture as a wall, which is well past the point
+where the game will quietly decline to import the pack.
+
+Two things keep that in check. Every tile is shrink-wrapped to the blocks it
+actually holds, with the offset folded into its `/structure load` line, and
+every pack entry is deflated with the platform's own CompressionStream. The same
+256-wide plane now packs to 0.09 MB. The export toast reports the finished size,
+so an unexpectedly large number is visible before it reaches Minecraft.
 
 ## Getting a build into Bedrock
 
