@@ -139,6 +139,26 @@ click(row);
 ok('clicking a row picks up a brush', row.classList.contains('brush'));
 ok('brush is announced', $('hover').textContent.includes('Black Wool'), $('hover').textContent);
 
+// fit-to-one-structure: the answer must move with the tilt
+$('bmode').value = 'plane'; change($('bmode'));
+$('btilt').value = '0'; input($('btilt'));
+await settle();
+click($('btn-fit-one'));
+await settle();
+const flatFit = Number($('gw').value);
+const loads = () => !/too big to load/.test($('budget-note').textContent);
+ok('fit-to-one gives a loadable grid at tilt 0', loads(), $('budget-note').textContent);
+$('btilt').value = '90'; input($('btilt'));
+await settle();
+click($('btn-fit-one'));
+await settle();
+const laidFit = Number($('gw').value);
+ok('lying flat needs a smaller grid than standing up', laidFit <= flatFit, `${laidFit} vs ${flatFit}`);
+ok('the result still loads as one file lying flat', loads(), $('budget-note').textContent);
+ok('fit-to-one never leaves an oversized grid', laidFit <= 64, String(laidFit));
+$('bmode').value = 'wall'; change($('bmode'));
+await settle();
+
 click($('tab-3d'));
 ok('tab switch works', $('view-3d').classList.contains('on') && !$('view-2d').classList.contains('on'));
 click($('tab-2d'));
@@ -157,12 +177,17 @@ window.document.createElement = tag => {
 click($('btn-list'));
 click($('btn-structure'));
 click($('btn-mcpack'));
+click($('btn-tiles'));
 click($('btn-obj'));
 await new Promise(r => setTimeout(r, 400));
+ok('the build note says whether one structure will load',
+  /fits one structure|one file:/.test($('budget-note').textContent),
+  $('budget-note').textContent);
 ok('tile size defaults under the structure block limit', Number($('maxtile').value) < 64, $('maxtile').value);
 ok('exports fire with the right filenames',
   saved.some(n => n.endsWith('_materials.txt')) && saved.some(n => n.endsWith('.mcstructure')) &&
-  saved.some(n => n.endsWith('.mcpack')) && saved.some(n => n.endsWith('.obj')), saved.join(', '));
+  saved.some(n => n.endsWith('.mcpack')) && saved.some(n => n.endsWith('.obj')) &&
+  saved.some(n => n.endsWith('_tiles.zip')), saved.join(', '));
 
 ok('still no uncaught errors', errors.length === 0, errors.join(' | '));
 

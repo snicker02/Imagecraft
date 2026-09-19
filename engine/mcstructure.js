@@ -161,6 +161,19 @@ export function splitVolume(vox, maxXZ = MAX_XZ, maxY = MAX_Y) {
   return tiles;
 }
 
+/**
+ * Can a structure block load this volume as one file?
+ * Returns 'yes', 'risky' (fits the stated 64 limit but sits at the horizontal
+ * maximum, which the game turns down in practice) or 'no'.
+ */
+export function fitsStructureBlock(vox) {
+  if (vox.sy > MAX_Y) return 'no';
+  const across = Math.max(vox.sx, vox.sz);
+  if (across > MAX_XZ) return 'no';
+  if (vox.sx >= MAX_XZ && vox.sz >= MAX_XZ) return 'no';
+  return across > SAFE_XZ ? 'risky' : 'yes';
+}
+
 /** /structure load lines, relative to where the player stands. */
 export function loadCommands(tiles, namespace, base) {
   const lines = [

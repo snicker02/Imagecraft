@@ -6,7 +6,7 @@ import { mapToBlocks, mapError, DITHER_MODES, DEFAULT_MAP_OPTS } from './engine/
 import { voxelize, buildMesh, meshToObj, BUILD_MODES, DEFAULT_BUILD } from './engine/mesh.js';
 import { Viewer } from './engine/renderer.js';
 import { MATCH_MODES } from './engine/color.js';
-import { buildStructure, splitVolume } from './engine/mcstructure.js';
+import { buildStructure, splitVolume, fitsStructureBlock } from './engine/mcstructure.js';
 import * as Ex from './engine/exporters.js';
 
 const $ = id => document.getElementById(id);
@@ -243,15 +243,22 @@ function updateStats() {
 
   const note = $('budget-note');
   const parts = [];
-  if (S.vox) {
-    const tiles = S.vox.count ? splitVolume(S.vox, S.maxtile).length : 0;
-    parts.push(`${tiles} structure${tiles === 1 ? '' : 's'} at ${S.maxtile} across`);
-    if (S.maxtile > 56) parts.push('tiles this wide can be refused on load');
-    if (n > S.budget) parts.push(`over budget by ${(n - S.budget).toLocaleString()}`);
+  let warn = false;
+  if (S.vox && S.vox.count) {
+    const tiles = splitVolume(S.vox, S.maxtile).length;
+    const fit = fitsStructureBlock(S.vox);
+    parts.push(`${S.vox.sx}×${S.vox.sy}×${S.vox.sz}`);
+    if (fit === 'yes' && tiles === 1) parts.push('fits one structure');
+    else {
+      parts.push(`one file: ${fit === 'yes' ? 'loadable' : fit === 'risky' ? 'at the size limit' : 'too big to load'}`);
+      parts.push(`split: ${tiles} piece${tiles === 1 ? '' : 's'} at ${S.maxtile} across`);
+    }
+    if (S.maxtile > 56) { parts.push('tiles this wide can be refused on load'); warn = true; }
+    if (n > S.budget) { parts.push(`over budget by ${(n - S.budget).toLocaleString()}`); warn = true; }
     if (S.meshSkipped) parts.push('3D preview off above 900k blocks');
   }
   note.textContent = parts.join(' · ');
-  note.className = 'note' + (S.vox && n > S.budget ? ' warn' : '');
+  note.className = 'note' + (warn ? ' warn' : '');
   $('empty').classList.toggle('hidden', !!S.source);
 }
 
@@ -513,6 +520,21 @@ function wire() {
   };
   $('gh-r').addEventListener('input', e => syncH(+e.target.value));
   $('gh').addEventListener('change', e => syncH(+e.target.value));
+  $('btn-fit-one').addEventListener('click', () => {
+    if (!S.source) return toast('Load an image first.', true);
+    const w = singleFileWidths();
+    if (!w || !w.loadable) return toast('No grid size fits this shape in one structure.', true);
+    const atLimit = w.safe < w.loadable
+      ? ` It sits at the 64 limit — ${w.safe} across is the size with room to spare.`
+      : '';
+    if (S.gw <= w.loadable) {
+      return toast(`${S.gw} across already loads as one file at this tilt. ` +
+        `${w.loadable} is the most it can take before it needs splitting.${atLimit}`);
+    }
+    syncW(w.loadable);
+    toast(`Grid set to ${w.loadable} across — the largest single .mcstructure at this tilt. ` +
+      `Tilting further lowers this, because height turns into depth.${atLimit}`);
+  });
   $('lock-aspect').addEventListener('change', e => {
     S.lockAspect = e.target.checked;
     $('gh').disabled = S.lockAspect; $('gh-r').disabled = S.lockAspect;
@@ -686,7 +708,45 @@ function wire() {
   $('btn-list').addEventListener('click', exportList);
   $('btn-obj').addEventListener('click', exportObj);
   $('btn-structure').addEventListener('click', exportStructure);
+  $('btn-tiles').addEventListener('click', exportTiles);
   $('btn-mcpack').addEventListener('click', exportPack);
+}
+
+/**
+ * Largest grid widths that still export as one structure at the current shape.
+ * Tilting rotates image height into depth, so the answer moves with the tilt: a
+ * picture that fits standing up can outgrow a structure block lying down.
+ *
+ * Returns { loadable, safe } — the widest that a structure block takes at all,
+ * and the widest that stays clear of the horizontal maximum. Width can never
+ * exceed 64, since one horizontal axis always carries the picture, so the
+ * search is capped there and stays cheap.
+ *
+ * The probe uses a synthetic full grid with both black and white cells, so the
+ * widest relief offset is included. Only the bounding box matters, and a full
+ * grid gives the largest one.
+ */
+function singleFileWidths() {
+  if (!S.source) return null;
+  const aspect = S.source.h / S.source.w;
+  const fitAt = w => {
+    const h = S.lockAspect ? Math.max(1, Math.round(w * aspect)) : S.gh;
+    const n = w * h;
+    const rgb = new Uint8Array(n * 3);
+    for (let i = 0; i < n; i++) { const v = (i & 1) ? 255 : 0; rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = v; }
+    return fitsStructureBlock(voxelize({ w, h, index: new Int16Array(n).fill(0), rgb, counts: new Map() }, S.build));
+  };
+  const widest = accept => {
+    if (accept(fitAt(64))) return 64;
+    if (!accept(fitAt(1))) return 0;
+    let lo = 1, hi = 64;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (accept(fitAt(mid))) lo = mid; else hi = mid;
+    }
+    return lo;
+  };
+  return { loadable: widest(f => f !== 'no'), safe: widest(f => f === 'yes') };
 }
 
 function setRelief(v) {
@@ -799,10 +859,38 @@ function exportStructure() {
   if (!guard()) return;
   const bytes = buildStructure(S.vox, S.blocks, { legacy: S.legacy, fillEmptyWithAir: S.airfill });
   Ex.download(`${Ex.safeName($('name').value)}.mcstructure`, bytes);
-  const big = S.vox.sx > 64 || S.vox.sz > 64 || S.vox.sy > 384;
-  toast(big
-    ? 'Saved — but it is larger than a structure block can load. Use the .mcpack for a tiled version.'
-    : `Saved ${S.vox.sx}×${S.vox.sy}×${S.vox.sz}.`, big);
+  const v = S.vox, size = `${v.sx}×${v.sy}×${v.sz}`;
+  const fit = fitsStructureBlock(v);
+  if (fit === 'yes') return toast(`Saved ${size} — a structure block loads this as it is.`);
+  if (fit === 'risky') {
+    return toast(`Saved ${size}. That is within the stated 64 limit but right at it, ` +
+      `which some versions refuse. Tiles .zip splits it if it will not load.`);
+  }
+  const tiles = splitVolume(v, S.maxtile).length;
+  toast(`Saved ${size}, which is past what a structure block can load — it tops out around ` +
+    `48 across, 384 tall. Tiles .zip gives ${tiles} importable pieces, .mcpack gives the same ` +
+    `pieces as a behaviour pack.`, true);
+}
+
+async function exportTiles() {
+  if (!guard()) return;
+  const btn = $('btn-tiles');
+  const name = $('name').value || 'imagecraft';
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = 'Packing…';
+  try {
+    const out = await Ex.buildTileZip(S.vox, S.blocks, {
+      name, namespace: 'imagecraft', legacy: S.legacy,
+      fillEmptyWithAir: S.airfill, maxXZ: S.maxtile,
+    });
+    Ex.download(`${Ex.safeName(name)}_tiles.zip`, out.bytes, 'application/zip');
+    toast(`${out.tiles.length} .mcstructure file${out.tiles.length === 1 ? '' : 's'}, ` +
+      `each under ${S.maxtile} across. placement.txt inside lists the offset for every piece.`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
 }
 
 async function exportPack() {

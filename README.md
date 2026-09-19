@@ -75,6 +75,36 @@ Shapes whose bounding box is deep as well as wide — Floor, and Plane past abou
 40 degrees — are the ones that used to hit this; a Wall is one block deep, so it
 never did.
 
+## Why a tilt can outgrow a structure block
+
+Tilting rotates image height into depth. A 64-wide, 64-tall picture standing up
+occupies 64 x 64 x 1 — one block deep. Lay it flat and the same picture occupies
+64 x 1 x 64, and that full-64 horizontal footprint is the shape a structure
+block turns down. In between:
+
+    tilt      0     30     45     60     90
+    depth     1     33     46     56     64
+
+So the same build can load as one file at 30 degrees and need splitting at 90 —
+nothing about the export changed, the picture simply got deeper.
+
+**Fit to one structure** in the Grid panel sets the grid to the largest width
+that still loads as a single file at the current angle, and says when that size
+is sitting on the 64 limit rather than clear of it. Press it again after
+changing the tilt, since the answer moves with the tilt. At 48 across, every
+angle fits with room to spare.
+
+## Which export to use
+
+- **.mcstructure** — one file, for builds that fit a structure block on their
+  own (up to 48 across, 384 tall) and for other editors. The Build panel says
+  up front whether the current build fits; the export says so again.
+- **Tiles .zip** — the same build cut into loadable pieces as plain
+  .mcstructure files, for the structure block's Import button. `placement.txt`
+  inside lists the offset, size and block count for every piece.
+- **.mcpack** — the same pieces as a behaviour pack, loaded with
+  `/structure load`. Least clicking for a big build.
+
 ## Pack size
 
 A .mcstructure stores one integer per cell of its bounding box, whether or not

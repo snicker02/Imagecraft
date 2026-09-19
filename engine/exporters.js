@@ -1,7 +1,7 @@
 // exporters.js — everything that leaves the browser as a file.
 
 import { zip, uuid4 } from './zip.js';
-import { buildStructure, splitVolume, loadCommands, MAX_XZ, MAX_Y } from './mcstructure.js';
+import { buildStructure, splitVolume, loadCommands, SAFE_XZ, MAX_Y } from './mcstructure.js';
 
 export function download(name, data, mime = 'application/octet-stream') {
   const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
@@ -23,7 +23,7 @@ export function safeName(s) {
 export async function buildMcPack(vox, blocks, opts) {
   const base = safeName(opts.name);
   const ns = safeName(opts.namespace || 'imagecraft');
-  const tiles = splitVolume(vox, opts.maxXZ || MAX_XZ, opts.maxY || MAX_Y);
+  const tiles = splitVolume(vox, opts.maxXZ || SAFE_XZ, opts.maxY || MAX_Y);
   const files = [];
 
   for (const t of tiles) {
@@ -52,6 +52,42 @@ export async function buildMcPack(vox, blocks, opts) {
   const raw = files.reduce((a, f) => a + (typeof f.data === 'string' ? f.data.length : f.data.length), 0);
   const bytes = await zip(files);
   return { bytes, tiles, commands, raw, files: files.map(f => f.name) };
+}
+
+/**
+ * A plain .zip of one .mcstructure per tile, for the structure block's Import
+ * button. No behaviour pack, no manifest — drop the files wherever the importer
+ * can see them and load them one at a time, or put the folder in a world's
+ * own structures directory.
+ */
+export async function buildTileZip(vox, blocks, opts) {
+  const base = safeName(opts.name);
+  const tiles = splitVolume(vox, opts.maxXZ || SAFE_XZ, opts.maxY || MAX_Y);
+  const files = tiles.map(t => ({
+    name: tiles.length === 1 ? `${base}.mcstructure` : `${base}_${t.col}_${t.row}_${t.layer}.mcstructure`,
+    data: buildStructure(t.vox, blocks, opts),
+  }));
+  const placement = [
+    `${opts.name || base} — ${tiles.length} piece${tiles.length === 1 ? '' : 's'}`,
+    '',
+    'Each file loads on its own with a structure block in Load mode (Import),',
+    'or with /structure load once the files are in a pack or world.',
+    'The offsets below are relative to the bottom north-west corner of the whole',
+    'build, so set the same corner for every piece and enter these as the offset.',
+    '',
+    'file'.padEnd(34) + 'offset x/y/z'.padEnd(18) + 'size'.padEnd(14) + 'blocks',
+  ];
+  tiles.forEach((t, i) => {
+    placement.push(
+      files[i].name.padEnd(34) +
+      `${t.ox}/${t.oy}/${t.oz}`.padEnd(18) +
+      `${t.vox.sx}x${t.vox.sy}x${t.vox.sz}`.padEnd(14) +
+      String(t.blocks)
+    );
+  });
+  placement.push('', loadCommands(tiles, safeName(opts.namespace || 'imagecraft'), base));
+  files.push({ name: 'placement.txt', data: placement.join('\n') });
+  return { bytes: await zip(files), tiles, files: files.map(f => f.name) };
 }
 
 function readme(commands, ns, base, tiles) {

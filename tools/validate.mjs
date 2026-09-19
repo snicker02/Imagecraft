@@ -8,9 +8,9 @@ import * as Pix from '../engine/pixelize.js';
 import { mapToBlocks, mapError } from '../engine/mapper.js';
 import { voxelize, buildMesh, meshToObj, trim } from '../engine/mesh.js';
 import { write, read, nbt } from '../engine/nbt.js';
-import { buildStructure, splitVolume, loadCommands, SAFE_XZ } from '../engine/mcstructure.js';
+import { buildStructure, splitVolume, loadCommands, SAFE_XZ, fitsStructureBlock } from '../engine/mcstructure.js';
 import { zip, crc32, uuid4, canDeflate } from '../engine/zip.js';
-import { buildMcPack, blockListText, blockListCsv, safeName } from '../engine/exporters.js';
+import { buildMcPack, buildTileZip, blockListText, blockListCsv, safeName } from '../engine/exporters.js';
 import { writeFileSync, mkdirSync } from 'node:fs';
 
 const MAX_Y_TEST = 384;
@@ -487,6 +487,28 @@ section('zip and pack');
   mkdirSync(new URL('../out', import.meta.url), { recursive: true });
   writeFileSync(new URL('../out/pack.mcpack', import.meta.url), pack.bytes);
   writeFileSync(new URL('../out/single.mcstructure', import.meta.url), buildStructure(vox, blocks, {}));
+
+  // fit reporting must match what the tiler actually needs
+  const fitCase = (sx, sy, sz) => fitsStructureBlock({ sx, sy, sz });
+  ok('a small build fits one structure', fitCase(40, 30, 1) === 'yes');
+  ok('48 across is still fine', fitCase(48, 30, 48) === 'yes');
+  ok('56 across is flagged as at the limit', fitCase(56, 30, 1) === 'risky');
+  ok('64 in both horizontal axes is refused', fitCase(64, 30, 64) === 'no');
+  ok('over 64 across is refused', fitCase(70, 10, 2) === 'no');
+  ok('over 384 tall is refused', fitCase(10, 400, 10) === 'no');
+  ok('every tile the splitter emits reports as loadable',
+    splitVolume(vox, SAFE_XZ).every(t => fitsStructureBlock(t.vox) === 'yes'));
+
+  const tz = await buildTileZip(vox, blocks, { name: 'Tile Test', maxXZ: SAFE_XZ });
+  const structs = tz.files.filter(f => f.endsWith('.mcstructure'));
+  ok('tile zip holds one structure per tile', structs.length === tz.tiles.length, String(structs.length));
+  ok('tile zip files are flat, not pack paths', structs.every(f => !f.includes('/')));
+  ok('tile zip carries a placement list', tz.files.includes('placement.txt'));
+  ok('tile zip is compressed', tz.bytes.length < 200000, String(tz.bytes.length));
+  const single = await buildTileZip({ sx: 2, sy: 1, sz: 2, cells: Int16Array.from([0, 0, 0, 0]), count: 4 },
+    blocks, { name: 'one' });
+  ok('a build that needs no splitting gets an unnumbered file',
+    single.files.includes('one.mcstructure'), single.files.join(' '));
 
   const txt = blockListText(grid.counts, blocks, 'Test');
   ok('material list lists every kind', txt.split('\n').length >= grid.counts.size + 4);
