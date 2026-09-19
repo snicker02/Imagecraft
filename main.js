@@ -21,7 +21,7 @@ const S = {
   brush: null,
   imgName: '',
   adjust: { ...Pix.DEFAULT_ADJUST },
-  gw: 128, gh: 128, lockAspect: true, resample: 'box',
+  gw: 128, gh: 128, lockAspect: true, resample: 'box', smooth: 0,
   map: { ...DEFAULT_MAP_OPTS },
   build: { ...DEFAULT_BUILD },
   legacy: false, airfill: false, maxtile: 48, budget: 1000000,
@@ -40,7 +40,7 @@ const TAGS = [
 const PRESETS = {
   'photo': {
     label: 'Photograph', groups: ['concrete', 'terracotta', 'wool', 'stone'],
-    map: { dither: 'floyd', strength: 0.85, matchMode: 'lab76' }, resample: 'box',
+    map: { dither: 'floyd', strength: 0.85, matchMode: 'lab76' }, resample: 'box', smooth: 0.4,
     adjust: { saturation: 0.05, contrast: 0.05 },
   },
   'poster': {
@@ -101,7 +101,7 @@ function run(from) {
         S.gh = Math.max(1, Math.round(S.gw * S.source.h / S.source.w));
         $('gh').value = S.gh; $('gh-r').value = Math.min(512, S.gh);
       }
-      S.pix = Pix.resample(S.adjusted, S.gw, S.gh, S.resample);
+      S.pix = Pix.blur(Pix.resample(S.adjusted, S.gw, S.gh, S.resample), S.smooth);
       S.view2d.fitted = false;
     }
     if (from <= LEVELS.map) {
@@ -541,6 +541,8 @@ function wire() {
     schedule('grid');
   });
   $('resample').addEventListener('change', e => { S.resample = e.target.value; schedule('grid'); });
+  bindRange('smooth', () => S.smooth, v => { S.smooth = v; schedule('grid'); },
+    v => v < 0.05 ? 'off' : v.toFixed(2));
 
   // adjustments
   const A = (id, key, fmt = v => v.toFixed(2)) =>
@@ -606,6 +608,7 @@ function wire() {
     S.map = { ...DEFAULT_MAP_OPTS, ...p.map };
     S.adjust = { ...Pix.DEFAULT_ADJUST, ...p.adjust };
     S.resample = p.resample;
+    S.smooth = p.smooth || 0;
     syncControlsFromState();
     refreshRows();
     schedule('adjust');
@@ -764,6 +767,8 @@ function modeControls() {
 
 function syncControlsFromState() {
   $('resample').value = S.resample;
+  $('smooth').value = S.smooth;
+  $('v-smooth').textContent = S.smooth < 0.05 ? 'off' : S.smooth.toFixed(2);
   $('match').value = S.map.matchMode;
   $('dither').value = S.map.dither;
   $('dstrength').value = S.map.strength; $('v-dstrength').textContent = S.map.strength.toFixed(2);

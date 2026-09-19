@@ -225,6 +225,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
           <label for="resample">Sampling</label>
           <select id="resample" class="grow"></select>
         </div>
+        <div class="row"><label for="smooth">Smooth</label><input type="range" id="smooth" min="0" max="3" step="0.05" value="0"><span class="val" id="v-smooth">off</span></div>
+        <p class="note">Smooth blurs the grid, measured in blocks, before the blocks are picked — it takes the speckle out of a noisy photograph.</p>
       </section>
 
       <section>

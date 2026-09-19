@@ -75,6 +75,22 @@ Shapes whose bounding box is deep as well as wide — Floor, and Plane past abou
 40 degrees — are the ones that used to hit this; a Wall is one block deep, so it
 never did.
 
+## Smoothing
+
+**Smooth** in the Grid panel is a Gaussian blur applied after the picture is
+resampled to the block grid and before the blocks are chosen, with its radius
+measured in blocks rather than source pixels — 0.8 means eight tenths of a
+block whatever the original resolution. That is what takes the speckle out of a
+grainy photograph: on a noisy test scene it cut isolated single blocks by more
+than half. Colour is weighted by alpha, so a cut-out edge does not pull
+transparent black into the blocks beside it. Around 0.4 to 0.8 tidies a photo
+without softening edges; past about 1.5 it starts flattening detail. The
+Photograph preset sets 0.4.
+
+Sharpen, up in Adjust, works on the full-resolution image before resampling, so
+the two are complementary rather than opposed: sharpen the picture, smooth the
+blocks.
+
 ## Why a tilt can outgrow a structure block
 
 Tilting rotates image height into depth. A 64-wide, 64-tall picture standing up

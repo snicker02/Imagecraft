@@ -176,6 +176,67 @@ export function resample(buf, w, h, mode = 'box', crop = null) {
   return out;
 }
 
+/**
+ * Separable Gaussian, with the radius measured in cells rather than source
+ * pixels. Run after resampling, so "0.8" means eight tenths of a block however
+ * big the original picture was — the smoothing you see is the smoothing you
+ * asked for, and it is what takes the speckle out of a dithered or noisy
+ * photograph before the blocks are chosen.
+ *
+ * Colour is weighted by alpha so a cut-out edge does not drag transparent
+ * black into the blocks beside it.
+ */
+export function blur(buf, sigma) {
+  if (!(sigma > 0.01)) return buf;
+  const { w, h, data } = buf;
+  const rad = Math.max(1, Math.ceil(sigma * 3));
+  const k = new Float32Array(rad * 2 + 1);
+  let sum = 0;
+  for (let i = -rad; i <= rad; i++) {
+    const v = Math.exp(-(i * i) / (2 * sigma * sigma));
+    k[i + rad] = v; sum += v;
+  }
+  for (let i = 0; i < k.length; i++) k[i] /= sum;
+
+  // premultiply once, blur, then undo
+  const pm = new Float32Array(data.length);
+  for (let i = 0; i < w * h; i++) {
+    const a = data[i * 4 + 3] / 255;
+    pm[i * 4] = data[i * 4] * a;
+    pm[i * 4 + 1] = data[i * 4 + 1] * a;
+    pm[i * 4 + 2] = data[i * 4 + 2] * a;
+    pm[i * 4 + 3] = data[i * 4 + 3];
+  }
+
+  const tmp = new Float32Array(data.length);
+  const out = new Float32Array(data.length);
+  const pass = (src, dst, W, H, stepX) => {
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let r = 0, g = 0, b = 0, a = 0;
+        for (let i = -rad; i <= rad; i++) {
+          const sx = stepX ? Math.min(W - 1, Math.max(0, x + i)) : x;
+          const sy = stepX ? y : Math.min(H - 1, Math.max(0, y + i));
+          const o = (sy * W + sx) * 4, wt = k[i + rad];
+          r += src[o] * wt; g += src[o + 1] * wt; b += src[o + 2] * wt; a += src[o + 3] * wt;
+        }
+        const o = (y * W + x) * 4;
+        dst[o] = r; dst[o + 1] = g; dst[o + 2] = b; dst[o + 3] = a;
+      }
+    }
+  };
+  pass(pm, tmp, w, h, true);
+  pass(tmp, out, w, h, false);
+
+  for (let i = 0; i < w * h; i++) {
+    const a = out[i * 4 + 3] / 255;
+    if (a > 0.0001) {
+      out[i * 4] /= a; out[i * 4 + 1] /= a; out[i * 4 + 2] /= a;
+    }
+  }
+  return { w, h, data: out };
+}
+
 /** Fit an image of size (iw,ih) into a block grid of max width/height, keeping aspect. */
 export function fitGrid(iw, ih, maxW, maxH, lockAspect = true) {
   if (!lockAspect) return { w: maxW, h: maxH };

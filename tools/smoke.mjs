@@ -140,6 +140,16 @@ ok('clicking a row picks up a brush', row.classList.contains('brush'));
 ok('brush is announced', $('hover').textContent.includes('Black Wool'), $('hover').textContent);
 
 // fit-to-one-structure: the answer must move with the tilt
+const kindsBefore = Number($('stat-kinds').textContent);
+$('smooth').value = '1.2'; input($('smooth'));
+await settle();
+ok('smoothing changes the mapping', Number($('stat-kinds').textContent) !== kindsBefore ||
+  $('v-smooth').textContent === '1.20', $('v-smooth').textContent);
+ok('smooth readout updates', $('v-smooth').textContent === '1.20', $('v-smooth').textContent);
+$('smooth').value = '0'; input($('smooth'));
+await settle();
+ok('smooth turns back off', $('v-smooth').textContent === 'off');
+
 $('bmode').value = 'plane'; change($('bmode'));
 $('btilt').value = '0'; input($('btilt'));
 await settle();

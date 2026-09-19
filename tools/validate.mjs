@@ -141,6 +141,49 @@ function solid(w, h, r, g, b, a = 255) {
   ok('fitGrid keeps aspect', f.w === 128 && f.h === 64, JSON.stringify(f));
   const crop = Pix.resample(src, 2, 2, 'box', { x: 2, y: 2, w: 4, h: 4 });
   ok('crop path runs', crop.w === 2 && near(crop.data[0], 120, 0.6));
+  // --- smoothing ---
+  ok('blur of zero is the same buffer', Pix.blur(src, 0) === src);
+  const flat = Pix.blur(solid(12, 12, 90, 140, 200), 1.2);
+  ok('blur leaves a flat colour alone',
+    near(flat.data[0], 90, 0.2) && near(flat.data[1], 140, 0.2) && near(flat.data[2], 200, 0.2),
+    `${flat.data[0]},${flat.data[1]},${flat.data[2]}`);
+  {
+    // mean is preserved (kernel sums to 1) and variance drops
+    const n = 40, noisy = { w: n, h: n, data: new Float32Array(n * n * 4) };
+    let seed = 7;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % 256; };
+    for (let i = 0; i < n * n; i++) {
+      const v = rnd();
+      noisy.data[i * 4] = v; noisy.data[i * 4 + 1] = v; noisy.data[i * 4 + 2] = v; noisy.data[i * 4 + 3] = 255;
+    }
+    const stats = b => {
+      let m = 0;
+      for (let i = 0; i < n * n; i++) m += b.data[i * 4];
+      m /= n * n;
+      let v = 0;
+      for (let i = 0; i < n * n; i++) v += (b.data[i * 4] - m) ** 2;
+      return { mean: m, varr: v / (n * n) };
+    };
+    const a = stats(noisy), b1 = stats(Pix.blur(noisy, 0.8)), b2 = stats(Pix.blur(noisy, 2));
+    ok('blur preserves the average brightness', Math.abs(a.mean - b1.mean) < 3,
+      `${a.mean.toFixed(1)} vs ${b1.mean.toFixed(1)}`);
+    ok('blur reduces variation', b1.varr < a.varr * 0.5, `${a.varr.toFixed(0)} -> ${b1.varr.toFixed(0)}`);
+    ok('more blur reduces it further', b2.varr < b1.varr);
+    ok('blur is deterministic', Pix.blur(noisy, 1).data.every((v, i) => v === Pix.blur(noisy, 1).data[i]));
+  }
+  {
+    // a cut-out edge must not drag transparent black into its neighbours
+    const n = 8, e = { w: n, h: n, data: new Float32Array(n * n * 4) };
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const i = (y * n + x) * 4;
+      e.data[i] = 255; e.data[i + 1] = 40; e.data[i + 2] = 40;
+      e.data[i + 3] = x < n / 2 ? 255 : 0;
+    }
+    const b = Pix.blur(e, 1);
+    const i = (3 * n + 3) * 4;
+    ok('transparent neighbours do not darken the colour', b.data[i] > 240, String(b.data[i]));
+  }
+
   const sh = Pix.sharpen(src, 1);
   ok('sharpen preserves flat regions', near(sh.data[0], 120, 0.6));
 }
@@ -208,6 +251,33 @@ const blocks = Pal.selectBlocks({ groups: new Set(Pal.DEFAULT_GROUPS), disabled:
   for (let i = 0; i < 16; i++) clearLock.data[i * 4 + 3] = 0;
   const gp = mapToBlocks(clearLock, blocks, {}, new Map([[2, 'white_wool']]));
   ok('painting into a cut-out area places a block', blocks[gp.index[2]].id === 'white_wool');
+
+  {
+    // the point of smoothing: fewer lone blocks with no like neighbour
+    const n = 64, noisy = { w: n, h: n, data: new Float32Array(n * n * 4) };
+    let seed = 99;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % 256; };
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const i = (y * n + x) * 4;
+      const base = 40 + 170 * (x / n);
+      noisy.data[i] = base + (rnd() - 128) * 0.45;
+      noisy.data[i + 1] = base + (rnd() - 128) * 0.45;
+      noisy.data[i + 2] = 200 - base * 0.5 + (rnd() - 128) * 0.45;
+      noisy.data[i + 3] = 255;
+    }
+    const lone = g => {
+      let c = 0;
+      for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
+        const v = g.index[y * n + x];
+        if (v !== g.index[y * n + x - 1] && v !== g.index[y * n + x + 1] &&
+            v !== g.index[(y - 1) * n + x] && v !== g.index[(y + 1) * n + x]) c++;
+      }
+      return c;
+    };
+    const raw = lone(mapToBlocks(noisy, blocks, { dither: 'none' }));
+    const soft = lone(mapToBlocks(Pix.blur(noisy, 1), blocks, { dither: 'none' }));
+    ok('smoothing leaves fewer isolated blocks', soft < raw * 0.6, `${raw} -> ${soft}`);
+  }
 
   const empty = mapToBlocks(pix, [], {});
   ok('empty palette does not crash', empty.counts.size === 0);
