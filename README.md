@@ -60,6 +60,21 @@ prove it. One caveat that is geometry, not a bug: at a turn that is not a right
 angle the picture is resampled onto a cubic lattice, so on very small grids a
 cell can merge into its neighbour. At build sizes nothing is lost.
 
+## Tile size
+
+A structure block tops out at 64 x 384 x 64, but a tile that is the full 64
+across in *both* horizontal directions is the shape the game turns down in
+practice. Height is not the problem — a 96-tall wall loads fine.
+
+That is why tiles default to 48 across rather than 64, and why the splitter
+divides evenly: a 128-wide build becomes three 43/43/42 tiles instead of
+64/64. Nothing it emits sits on the limit. The control goes up to 64 if you
+want to try a wider tile, and the stats line warns above 56.
+
+Shapes whose bounding box is deep as well as wide — Floor, and Plane past about
+40 degrees — are the ones that used to hit this; a Wall is one block deep, so it
+never did.
+
 ## Pack size
 
 A .mcstructure stores one integer per cell of its bounding box, whether or not

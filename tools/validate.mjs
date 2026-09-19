@@ -8,11 +8,12 @@ import * as Pix from '../engine/pixelize.js';
 import { mapToBlocks, mapError } from '../engine/mapper.js';
 import { voxelize, buildMesh, meshToObj, trim } from '../engine/mesh.js';
 import { write, read, nbt } from '../engine/nbt.js';
-import { buildStructure, splitVolume, loadCommands } from '../engine/mcstructure.js';
+import { buildStructure, splitVolume, loadCommands, SAFE_XZ } from '../engine/mcstructure.js';
 import { zip, crc32, uuid4, canDeflate } from '../engine/zip.js';
 import { buildMcPack, blockListText, blockListCsv, safeName } from '../engine/exporters.js';
 import { writeFileSync, mkdirSync } from 'node:fs';
 
+const MAX_Y_TEST = 384;
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
   if (cond) { pass++; console.log(`  ok   ${name}`); }
@@ -397,17 +398,54 @@ section('mcstructure');
 
   // tiling
   const big = voxelize(mapToBlocks(ramp(150, 90), blocks, { dither: 'none' }), { mode: 'wall', depth: 1 });
-  const tiles = splitVolume(big, 64, 384);
-  ok('tile grid covers the build', tiles.length === 3, String(tiles.length));
+  const tiles = splitVolume(big, SAFE_XZ, 384);
+  ok('tile grid covers the build', tiles.length === Math.ceil(150 / SAFE_XZ), String(tiles.length));
+  ok('the default tile size is under the structure block limit', SAFE_XZ < 64, String(SAFE_XZ));
+  {
+    // a dense volume, where shrink-wrap cannot shave anything, shows the raw split
+    const dense = { sx: 150, sy: 2, sz: 100, cells: new Int16Array(150 * 2 * 100).fill(0), count: 30000 };
+    const xs = [...new Set(splitVolume(dense, 48, 384).map(t => t.vox.sx))];
+    const zs = [...new Set(splitVolume(dense, 48, 384).map(t => t.vox.sz))];
+    ok('tiles are evenly sized rather than max-then-remainder',
+      Math.max(...xs) - Math.min(...xs) <= 1 && Math.max(...zs) - Math.min(...zs) <= 1,
+      `${xs.join('/')} by ${zs.join('/')}`);
+  }
+  ok('no tile is the full 64 across in both horizontal directions',
+    tiles.every(t => !(t.vox.sx >= 64 && t.vox.sz >= 64)));
   const tileTotal = tiles.reduce((a, t) => a + t.blocks, 0);
   ok('tiles keep every block', tileTotal === big.count, `${tileTotal} vs ${big.count}`);
-  ok('no tile exceeds 64 on x or z', tiles.every(t => t.vox.sx <= 64 && t.vox.sz <= 64));
+  ok('no tile exceeds the requested span', tiles.every(t => t.vox.sx <= SAFE_XZ && t.vox.sz <= SAFE_XZ));
+  ok('an even split beats a max-then-remainder split',
+    splitVolume(big, 48, 384).every(t => t.vox.sx <= 48 && t.vox.sz <= 48));
   // spot check a value survives the split
   const t0 = tiles[0];
   const orig = big.cells[((5 + t0.ox) * big.sy + (7 + t0.oy)) * big.sz + (0 + t0.oz)];
   ok('tile contents line up', t0.vox.cells[(5 * t0.vox.sy + 7) * t0.vox.sz + 0] === orig);
   const cmds = loadCommands(tiles, 'imagecraft', 'pic');
   ok('one load command per tile', cmds.split('\n').filter(l => l.startsWith('/structure load')).length === tiles.length);
+}
+
+// every build shape must tile to something the game will actually load
+{
+  const g2 = mapToBlocks(ramp(128, 96), blocks, { dither: 'none' });
+  const shapes = [
+    ['wall', { mode: 'wall', depth: 1 }],
+    ['floor', { mode: 'floor', depth: 1 }],
+    ['relief', { mode: 'relief', depth: 1, relief: 6 }],
+    ['plane 30', { mode: 'plane', tilt: 30, depth: 1, relief: 0 }],
+    ['plane 45', { mode: 'plane', tilt: 45, depth: 1, relief: 0 }],
+    ['plane 90', { mode: 'plane', tilt: 90, depth: 1, relief: 0 }],
+    ['plane 45/30', { mode: 'plane', tilt: 45, yaw: 30, depth: 1, relief: 0 }],
+  ];
+  let bad = [], lost = [];
+  for (const [name, o] of shapes) {
+    const v = voxelize(g2, o);
+    const ts = splitVolume(v, SAFE_XZ, MAX_Y_TEST);
+    if (ts.some(t => t.vox.sx >= 64 && t.vox.sz >= 64)) bad.push(name);
+    if (ts.reduce((a, t) => a + t.blocks, 0) !== v.count) lost.push(name);
+  }
+  ok('no build shape produces a 64x64 tile', bad.length === 0, bad.join(' '));
+  ok('no build shape loses blocks to tiling', lost.length === 0, lost.join(' '));
 }
 
 // ---------------------------------------------------------------- zip

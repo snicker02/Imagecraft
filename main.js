@@ -24,7 +24,7 @@ const S = {
   gw: 128, gh: 128, lockAspect: true, resample: 'box',
   map: { ...DEFAULT_MAP_OPTS },
   build: { ...DEFAULT_BUILD },
-  legacy: false, airfill: false, maxtile: 64, budget: 1000000,
+  legacy: false, airfill: false, maxtile: 48, budget: 1000000,
   view2d: { scale: 4, ox: 0, oy: 0, fitted: false, lines: false },
   meshSkipped: false,
 };
@@ -245,7 +245,8 @@ function updateStats() {
   const parts = [];
   if (S.vox) {
     const tiles = S.vox.count ? splitVolume(S.vox, S.maxtile).length : 0;
-    parts.push(`${tiles} structure${tiles === 1 ? '' : 's'} at ${S.maxtile}³`);
+    parts.push(`${tiles} structure${tiles === 1 ? '' : 's'} at ${S.maxtile} across`);
+    if (S.maxtile > 56) parts.push('tiles this wide can be refused on load');
     if (n > S.budget) parts.push(`over budget by ${(n - S.budget).toLocaleString()}`);
     if (S.meshSkipped) parts.push('3D preview off above 900k blocks');
   }

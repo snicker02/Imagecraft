@@ -18,8 +18,13 @@ import { resolveBlock } from './palette.js';
 /** Packed block version stamp. Bedrock accepts older stamps and upgrades them. */
 export const BLOCK_VERSION = (1 << 24) | (21 << 16) | (60 << 8) | 0; // 1.21.60
 
-/** A structure block can load 64 x 384 x 64 at most. */
+/**
+ * A structure block can load 64 x 384 x 64 at most, but a tile that is the full
+ * 64 in both horizontal directions is the shape the game refuses in practice,
+ * so tiles default to 48 across and 64 is only the hard ceiling.
+ */
 export const MAX_XZ = 64;
+export const SAFE_XZ = 48;
 export const MAX_Y = 384;
 
 function statesToNbt(states) {
@@ -91,21 +96,47 @@ export function buildStructure(vox, blocks, opts = {}) {
   return write(root, '');
 }
 
-/** Cut a volume into loadable tiles. Returns [{ox,oy,oz,vox,row,col,layer}]. */
+/**
+ * Split an extent into n nearly equal spans, so a 128-wide build at a 48 cap
+ * becomes 43/43/42 rather than 48/48/32. Even tiles avoid both slivers and
+ * tiles that sit right on the size limit.
+ */
+function spans(total, max) {
+  const n = Math.max(1, Math.ceil(total / max));
+  const base = Math.floor(total / n), rem = total % n;
+  const out = [];
+  let start = 0;
+  for (let i = 0; i < n; i++) {
+    const size = base + (i < rem ? 1 : 0);
+    out.push([start, size]);
+    start += size;
+  }
+  return out;
+}
+
+/**
+ * Cut a volume into loadable tiles, each shrink-wrapped to the blocks it holds.
+ * Returns [{ox,oy,oz,vox,row,col,layer,blocks}] with offsets in volume space.
+ *
+ * A structure block tops out at 64 x 384 x 64, and a tile that is the full 64
+ * across in BOTH horizontal directions is the case that gets refused in
+ * practice, so keep maxXZ below 64 rather than at it.
+ */
 export function splitVolume(vox, maxXZ = MAX_XZ, maxY = MAX_Y) {
   const { sx, sy, sz, cells } = vox;
   const tiles = [];
-  const nx = Math.ceil(sx / maxXZ), ny = Math.ceil(sy / maxY), nz = Math.ceil(sz / maxXZ);
-  for (let tx = 0; tx < nx; tx++) {
-    for (let ty = 0; ty < ny; ty++) {
-      for (let tz = 0; tz < nz; tz++) {
-        const ox = tx * maxXZ, oy = ty * maxY, oz = tz * maxXZ;
-        const w = Math.min(maxXZ, sx - ox), hgt = Math.min(maxY, sy - oy), d = Math.min(maxXZ, sz - oz);
+  const xs = spans(sx, Math.min(maxXZ, MAX_XZ));
+  const ys = spans(sy, Math.min(maxY, MAX_Y));
+  const zs = spans(sz, Math.min(maxXZ, MAX_XZ));
+
+  for (let tx = 0; tx < xs.length; tx++) {
+    for (let ty = 0; ty < ys.length; ty++) {
+      for (let tz = 0; tz < zs.length; tz++) {
+        const [ox, w] = xs[tx], [oy, hgt] = ys[ty], [oz, d] = zs[tz];
 
         // Shrink-wrap the tile around the blocks it holds. An angled build
         // leaves most of its bounding box as structure void, and every one of
-        // those cells still costs an int in the file, so this is the difference
-        // between a lean pack and a huge one.
+        // those cells still costs an int in the file.
         let x0 = w, y0 = hgt, z0 = d, x1 = -1, y1 = -1, z1 = -1, used = 0;
         for (let x = 0; x < w; x++) for (let y = 0; y < hgt; y++) for (let z = 0; z < d; z++) {
           if (cells[((x + ox) * sy + (y + oy)) * sz + (z + oz)] < 0) continue;
