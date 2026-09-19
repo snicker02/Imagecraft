@@ -251,6 +251,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
         <h2>Build</h2>
         <div class="row"><label for="bmode">Shape</label><select id="bmode" class="grow"></select></div>
         <div class="row"><label for="bdepth">Thickness</label><input type="range" id="bdepth" min="1" max="8" step="1" value="1"><span class="val" id="v-bdepth">1</span></div>
+        <div class="row" id="row-tilt"><label for="btilt">Tilt</label><input type="range" id="btilt" min="-90" max="90" step="1" value="30"><span class="val" id="v-btilt">30</span></div>
+        <div class="row" id="row-yaw"><label for="byaw">Turn</label><input type="range" id="byaw" min="-180" max="180" step="1" value="0"><span class="val" id="v-byaw">0</span></div>
+        <p class="note hidden" id="plane-note">Tilt 0 stands it up like a wall, 90 lays it flat like a floor. Turn spins it about the vertical axis.</p>
         <div class="row" id="row-relief"><label for="brelief">Relief</label><input type="range" id="brelief" min="0" max="24" step="1" value="4"><span class="val" id="v-brelief">4</span></div>
         <label class="check" id="row-invert"><input type="checkbox" id="binvert"> Dark comes forward instead</label>
         <label class="check" id="row-fill"><input type="checkbox" id="bfill" checked> Fill in behind so it is solid</label>

@@ -27,7 +27,7 @@ engine/
   pixelize.js         adjustments (brightness/contrast/saturation/gamma/hue/posterize/sharpen)
                       and four resampling modes down to the block grid
   mapper.js           image -> palette indices, with eight dithering modes
-  mesh.js             voxelising (wall / floor / relief) + face-culled mesh + OBJ
+  mesh.js             voxelising (wall / floor / relief / free plane) + face-culled mesh + OBJ
   renderer.js         WebGL1 orbit viewer
   nbt.js              little-endian NBT reader and writer
   mcstructure.js      .mcstructure assembly, 64³ tiling, /structure load commands
@@ -41,6 +41,24 @@ tools/
 The pipeline is staged: `adjust -> grid -> map -> vox -> draw`. A control only
 invalidates its own stage and everything downstream, so moving a dither slider
 does not re-resample the image.
+
+## Build shapes
+
+- **Wall** — stands up, faces south.
+- **Floor** — lies flat, read from above, image top to the north.
+- **Relief** — a wall where brightness pushes blocks forward.
+- **Plane** — free orientation. Tilt 0 reproduces Wall exactly and tilt 90
+  reproduces Floor exactly, block for block; anything between is an angled
+  plane, and Turn spins it about the vertical axis. Relief works here too,
+  measured along the plane's own normal.
+
+Angled planes are filled by inverse mapping — every voxel in the bounding box is
+projected back into plane space — and the slab is widened by half the L1 norm of
+its normal, which is the condition for a face-connected rasterised plane. So no
+angle leaves pin-holes; `tools/validate.mjs` flood-fills 55 tilt/turn pairs to
+prove it. One caveat that is geometry, not a bug: at a turn that is not a right
+angle the picture is resampled onto a cubic lattice, so on very small grids a
+cell can merge into its neighbour. At build sizes nothing is lost.
 
 ## Getting a build into Bedrock
 

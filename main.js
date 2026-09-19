@@ -549,9 +549,19 @@ function wire() {
   bindRange('alpha', () => S.map.alphaCutoff, v => { S.map.alphaCutoff = v; schedule('map'); }, v => String(v | 0));
 
   // build
-  $('bmode').addEventListener('change', e => { S.build.mode = e.target.value; reliefVisibility(); schedule('vox'); });
+  $('bmode').addEventListener('change', e => {
+    S.build.mode = e.target.value;
+    // Plane starts flat; Relief starts with something to see. The slider stays
+    // live in both, so either can be pushed the other way straight after.
+    if (S.build.mode === 'plane') setRelief(0);
+    else if (S.build.mode === 'relief' && S.build.relief === 0) setRelief(4);
+    modeControls();
+    schedule('vox');
+  });
   bindRange('bdepth', () => S.build.depth, v => { S.build.depth = v; schedule('vox'); }, v => String(v | 0));
   bindRange('brelief', () => S.build.relief, v => { S.build.relief = v; schedule('vox'); }, v => String(v | 0));
+  bindRange('btilt', () => S.build.tilt, v => { S.build.tilt = v; schedule('vox'); }, v => String(v | 0) + '\u00b0');
+  bindRange('byaw', () => S.build.yaw, v => { S.build.yaw = v; schedule('vox'); }, v => String(v | 0) + '\u00b0');
   $('binvert').addEventListener('change', e => { S.build.reliefInvert = e.target.checked; schedule('vox'); });
   $('bfill').addEventListener('change', e => { S.build.fillBack = e.target.checked; schedule('vox'); });
   $('maxtile').addEventListener('change', e => {
@@ -561,7 +571,7 @@ function wire() {
   $('airfill').addEventListener('change', e => { S.airfill = e.target.checked; });
   $('legacy').addEventListener('change', e => { S.legacy = e.target.checked; });
   $('budget').addEventListener('change', e => { S.budget = Math.max(1000, +e.target.value | 0); updateStats(); });
-  reliefVisibility();
+  modeControls();
 
   // presets
   $('preset').addEventListener('change', e => {
@@ -678,11 +688,17 @@ function wire() {
   $('btn-mcpack').addEventListener('click', exportPack);
 }
 
-function reliefVisibility() {
-  const on = S.build.mode === 'relief';
-  $('row-relief').classList.toggle('hidden', !on);
-  $('row-invert').classList.toggle('hidden', !on);
-  $('row-fill').classList.toggle('hidden', !on);
+function setRelief(v) {
+  S.build.relief = v;
+  $('brelief').value = v;
+  $('v-brelief').textContent = String(v | 0);
+}
+
+function modeControls() {
+  const plane = S.build.mode === 'plane';
+  const relief = S.build.mode === 'relief' || plane;
+  for (const id of ['row-relief', 'row-invert', 'row-fill']) $(id).classList.toggle('hidden', !relief);
+  for (const id of ['row-tilt', 'row-yaw', 'plane-note']) $(id).classList.toggle('hidden', !plane);
 }
 
 function syncControlsFromState() {

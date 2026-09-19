@@ -6,7 +6,7 @@ import { rgbToLab, dLab76, dLab2000, Matcher, rgbToHex, hexToRgb } from '../engi
 import * as Pal from '../engine/palette.js';
 import * as Pix from '../engine/pixelize.js';
 import { mapToBlocks, mapError } from '../engine/mapper.js';
-import { voxelize, buildMesh, meshToObj } from '../engine/mesh.js';
+import { voxelize, buildMesh, meshToObj, trim } from '../engine/mesh.js';
 import { write, read, nbt } from '../engine/nbt.js';
 import { buildStructure, splitVolume, loadCommands } from '../engine/mcstructure.js';
 import { zip, crc32, uuid4 } from '../engine/zip.js';
@@ -235,6 +235,67 @@ section('voxels and mesh');
   ok('relief deepens the volume', rel.sz === 6 && rel.count >= 24, `${rel.sz},${rel.count}`);
   const relNoFill = voxelize(grid, { mode: 'relief', depth: 1, relief: 5, fillBack: false });
   ok('relief without backing is one block per column', relNoFill.count === 24, String(relNoFill.count));
+
+  // --- plane mode ---
+  const sameVox = (a, b) => a.sx === b.sx && a.sy === b.sy && a.sz === b.sz &&
+    a.cells.every((v, i) => v === b.cells[i]);
+  const plane = (o) => voxelize(grid, { mode: 'plane', depth: 1, relief: 0, tilt: 0, yaw: 0, ...o });
+
+  ok('plane at tilt 0 is exactly the wall', sameVox(plane({}), voxelize(grid, { mode: 'wall', depth: 1 })));
+  ok('plane at tilt 90 is exactly the floor',
+    sameVox(plane({ tilt: 90 }), voxelize(grid, { mode: 'floor', depth: 1 })));
+  ok('plane thickness multiplies', plane({ depth: 3 }).count === 24 * 3);
+  ok('yaw 90 swaps the x and z extents',
+    (() => { const v = plane({ yaw: 90 }); return v.sx === 1 && v.sy === 4 && v.sz === 6; })(),
+    JSON.stringify(plane({ yaw: 90 })).slice(0, 40));
+  ok('yaw 180 is still a flat wall', (() => { const v = plane({ yaw: 180 }); return v.sx === 6 && v.sz === 1; })());
+
+  const connected6 = v => {
+    const filled = [];
+    for (let i = 0; i < v.cells.length; i++) if (v.cells[i] >= 0) filled.push(i);
+    if (!filled.length) return false;
+    const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= v.sx || y >= v.sy || z >= v.sz)
+      ? -1 : (x * v.sy + y) * v.sz + z;
+    const seen = new Set([filled[0]]), stack = [filled[0]];
+    while (stack.length) {
+      const i = stack.pop();
+      const z = i % v.sz, y = (((i - z) / v.sz) % v.sy), x = (((i - z) / v.sz) - y) / v.sy;
+      for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+        const j = at(x + dx, y + dy, z + dz);
+        if (j >= 0 && v.cells[j] >= 0 && !seen.has(j)) { seen.add(j); stack.push(j); }
+      }
+    }
+    return seen.size === filled.length;
+  };
+
+  let leaky = [], thin = [];
+  for (const tilt of [-75, -45, -20, 10, 15, 30, 37, 45, 60, 75, 89]) {
+    for (const yaw of [0, 23, 45, 90, 137]) {
+      const v = plane({ tilt, yaw });
+      if (!connected6(v)) leaky.push(`${tilt}/${yaw}`);
+      if (v.count < 24 * 0.95) thin.push(`${tilt}/${yaw} ${v.count}`);
+    }
+  }
+  ok('every tilt/yaw pair rasterises watertight', leaky.length === 0, leaky.join(' '));
+  ok('no angle loses more than a rounding cell', thin.length === 0, thin.join(' '));
+  // a rotated picture is resampled onto the lattice, so cells can merge on a tiny
+  // grid; at a real build size nothing should be lost at any angle
+  {
+    const big = mapToBlocks(ramp(48, 32), blocks, { dither: 'none' });
+    let short = [];
+    for (const tilt of [-60, -33, 17, 45, 72, 89]) for (const yaw of [0, 37, 90, 154]) {
+      const v = voxelize(big, { mode: 'plane', depth: 1, relief: 0, tilt, yaw });
+      if (v.count < 48 * 32) short.push(`${tilt}/${yaw} ${v.count}`);
+    }
+    ok('at build size every cell survives any angle', short.length === 0, short.join(' '));
+  }
+
+  const angled = plane({ tilt: 45, yaw: 30 });
+  ok('plane volume is trimmed to its contents', sameVox(angled, trim(angled)));
+  ok('relief deepens a plane too', plane({ tilt: 45, relief: 6 }).count > angled.count);
+  const empty = voxelize({ w: 2, h: 2, index: Int16Array.from([-1, -1, -1, -1]), rgb: new Uint8Array(12), counts: new Map() },
+    { mode: 'plane', tilt: 33 });
+  ok('an empty grid gives an empty volume', empty.count === 0 && empty.sx === 1);
 
   // single cube
   const one = { sx: 1, sy: 1, sz: 1, cells: Int16Array.from([0]), count: 1 };

@@ -54,7 +54,7 @@ ok('palette rows rendered', window.document.querySelectorAll('.blockrow').length
 ok('group toggles rendered', window.document.querySelectorAll('[data-group]').length === 11);
 ok('tag filters rendered', window.document.querySelectorAll('[data-tag]').length === 5);
 ok('selects populated', $('resample').options.length === 4 && $('dither').options.length === 8 &&
-  $('bmode').options.length === 3 && $('match').options.length === 4 && $('preset').options.length === 9,
+  $('bmode').options.length === 4 && $('match').options.length === 4 && $('preset').options.length === 9,
   `${$('preset').options.length}`);
 ok('3D falls back cleanly with no WebGL', $('hint3d').textContent.includes('WebGL'), $('hint3d').textContent);
 ok('relief controls hidden in wall mode', $('row-relief').classList.contains('hidden'));
@@ -81,9 +81,26 @@ ok('grid width applies and keeps aspect', $('stat-size').textContent === '64×43
 $('bmode').value = 'relief'; change($('bmode'));
 await settle();
 ok('relief controls appear', !$('row-relief').classList.contains('hidden'));
+ok('plane-only controls stay hidden in relief mode', $('row-tilt').classList.contains('hidden'));
 const wallBlocks = 64 * 43;
 ok('relief adds blocks behind the face', Number($('stat-blocks').textContent.replace(/,/g, '')) > wallBlocks,
   $('stat-blocks').textContent);
+
+$('bmode').value = 'plane'; change($('bmode'));
+await settle();
+ok('plane controls appear', !$('row-tilt').classList.contains('hidden') &&
+  !$('row-yaw').classList.contains('hidden') && !$('plane-note').classList.contains('hidden'));
+const flatPlane = Number($('stat-blocks').textContent.replace(/,/g, ''));
+$('btilt').value = '0'; input($('btilt'));
+await settle();
+ok('plane at tilt 0 matches the wall count',
+  Number($('stat-blocks').textContent.replace(/,/g, '')) === wallBlocks, $('stat-blocks').textContent);
+$('btilt').value = '45'; input($('btilt'));
+$('byaw').value = '30'; input($('byaw'));
+await settle();
+ok('an angled plane keeps every cell',
+  Number($('stat-blocks').textContent.replace(/,/g, '')) >= wallBlocks, $('stat-blocks').textContent);
+ok('tilting changed the build', Number($('stat-blocks').textContent.replace(/,/g, '')) !== wallBlocks || flatPlane > 0);
 
 $('bmode').value = 'floor'; change($('bmode'));
 $('bdepth').value = '2'; input($('bdepth'));
