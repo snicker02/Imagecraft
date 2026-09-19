@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Imagecraft</title>
+<style>
+:root {
+  --bg: #12141a;
+  --stage: #0e1015;
+  --panel: #191c24;
+  --panel-2: #1f232d;
+  --line: #2a2f3b;
+  --text: #d7dbe4;
+  --muted: #868ea0;
+  --accent: #5b8dd1;
+  --warn: #d9a441;
+  --bad: #cf6b5c;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--text); font-family: var(--sans);
+  font-size: 13px; line-height: 1.45; overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---------- frame ---------- */
+#app { display: grid; grid-template-rows: 46px 1fr; height: 100%; }
+#bar {
+  display: flex; align-items: center; gap: 14px; padding: 0 14px;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+#bar h1 {
+  font-size: 15px; font-weight: 620; letter-spacing: -0.01em; margin: 0;
+}
+#bar h1 span { color: var(--accent); }
+#name {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+  padding: 4px 8px; width: 190px; font-family: var(--mono); font-size: 12px;
+}
+.stats { display: flex; gap: 16px; margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.stats b { color: var(--text); font-weight: 560; }
+.bar-actions { display: flex; gap: 6px; }
+
+#main { display: grid; grid-template-columns: 286px 1fr 268px; min-height: 0; }
+.rail {
+  background: var(--panel); overflow-y: auto; overscroll-behavior: contain;
+  border-right: 1px solid var(--line);
+}
+#right { border-right: none; border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+#stage { background: var(--stage); position: relative; display: flex; flex-direction: column; min-width: 0; }
+
+/* ---------- panel sections ---------- */
+section { border-bottom: 1px solid var(--line); padding: 12px 14px 14px; }
+section > h2 {
+  font-size: 12px; font-weight: 600; margin: 0 0 10px; color: var(--text);
+  display: flex; align-items: baseline; gap: 8px;
+}
+section > h2 em { font-style: normal; color: var(--muted); font-weight: 400; font-size: 11px; }
+
+.row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+.row > label { flex: 0 0 82px; color: var(--muted); font-size: 12px; }
+.row > .grow { flex: 1; min-width: 0; }
+.row.stack { display: block; }
+
+input[type=range] { -webkit-appearance: none; appearance: none; height: 18px; background: none; flex: 1; min-width: 0; }
+input[type=range]::-webkit-slider-runnable-track { height: 3px; background: var(--line); border-radius: 2px; }
+input[type=range]::-moz-range-track { height: 3px; background: var(--line); border-radius: 2px; }
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--accent); margin-top: -4.5px; border: none;
+}
+input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--accent); }
+
+input[type=number], input[type=text], select {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+  padding: 4px 6px; min-width: 0;
+}
+input[type=number] { width: 66px; font-family: var(--mono); font-size: 12px; }
+select { width: 100%; }
+.val { font-family: var(--mono); font-size: 11.5px; color: var(--muted); width: 44px; text-align: right; }
+
+.check { display: flex; align-items: center; gap: 7px; margin: 6px 0; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 14px; height: 14px; }
+.checks { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
+
+button {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+  padding: 5px 10px; cursor: pointer; transition: border-color .12s, background .12s;
+}
+button:hover { border-color: #3c4453; background: #242936; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #0b0f16; font-weight: 600; }
+button.primary:hover { background: #6d9ada; border-color: #6d9ada; }
+button.ghost { background: none; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---------- drop zone ---------- */
+.drop {
+  border: 1px dashed var(--line); border-radius: 6px; padding: 18px 12px; text-align: center;
+  color: var(--muted); cursor: pointer; background: #15181f;
+}
+.drop:hover, .drop.over { border-color: var(--accent); color: var(--text); }
+.drop strong { display: block; color: var(--text); font-weight: 560; margin-bottom: 3px; }
+
+/* ---------- stage ---------- */
+.tabs { display: flex; gap: 2px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); background: var(--panel); }
+.tab {
+  border: 1px solid transparent; border-bottom: none; border-radius: 5px 5px 0 0;
+  padding: 5px 12px; background: none; color: var(--muted);
+}
+.tab[aria-selected=true] { background: var(--stage); border-color: var(--line); color: var(--text); margin-bottom: -1px; }
+.view { flex: 1; position: relative; min-height: 0; display: none; }
+.view.on { display: block; }
+.view canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#c2d, #csrc { image-rendering: pixelated; }
+.overlay {
+  position: absolute; left: 10px; bottom: 10px; z-index: 2;
+  background: rgba(14,16,21,.82); border: 1px solid var(--line); border-radius: 5px;
+  padding: 6px 9px; font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  pointer-events: none; max-width: 70%;
+}
+.overlay b { color: var(--text); font-weight: 560; }
+.stage-tools {
+  position: absolute; right: 10px; top: 10px; z-index: 2; display: flex; gap: 6px;
+}
+#empty {
+  position: absolute; inset: 0; display: grid; place-content: center; text-align: center;
+  color: var(--muted); gap: 6px; z-index: 3;
+}
+#empty h3 { color: var(--text); margin: 0; font-size: 15px; font-weight: 560; }
+
+/* ---------- palette panel ---------- */
+#right .tabs { padding-top: 8px; }
+.pane { display: none; flex: 1; min-height: 0; flex-direction: column; }
+.pane.on { display: flex; }
+.pane-scroll { overflow-y: auto; flex: 1; padding: 0 0 10px; }
+.pane-head { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+#psearch { width: 100%; }
+.blocklist { display: block; }
+.blockrow {
+  display: flex; align-items: center; gap: 8px; padding: 3px 12px; cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.blockrow:hover { background: #1e222b; }
+.blockrow.brush { border-left-color: var(--accent); background: #1e222b; }
+.blockrow.off { opacity: .34; }
+.swatch { width: 16px; height: 16px; border-radius: 3px; border: 1px solid rgba(255,255,255,.14); flex: 0 0 auto; }
+.blockrow .nm { flex: 1; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.blockrow .ct { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.grouphead {
+  padding: 8px 12px 3px; font-size: 11px; color: var(--muted); position: sticky; top: 0;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.matrow { display: flex; align-items: center; gap: 8px; padding: 3px 12px; }
+.matrow .bar { height: 3px; background: var(--accent); border-radius: 2px; }
+
+.note { color: var(--muted); font-size: 11.5px; margin: 8px 0 0; }
+.warn { color: var(--warn); }
+.bad { color: var(--bad); }
+.hidden { display: none !important; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #262c37; border-radius: 6px; border: 2px solid var(--panel); }
+::-webkit-scrollbar-track { background: transparent; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="bar">
+    <h1>Image<span>craft</span></h1>
+    <input id="name" type="text" value="imagecraft" spellcheck="false" aria-label="Build name">
+    <div class="stats">
+      <span>grid <b id="stat-size">—</b></span>
+      <span>blocks <b id="stat-blocks">—</b></span>
+      <span>kinds <b id="stat-kinds">—</b></span>
+      <span>avg error <b id="stat-error">—</b></span>
+    </div>
+    <div class="bar-actions">
+      <button id="btn-png">PNG</button>
+      <button id="btn-list">Materials</button>
+      <button id="btn-obj">OBJ</button>
+      <button id="btn-structure">.mcstructure</button>
+      <button id="btn-mcpack" class="primary">Export .mcpack</button>
+    </div>
+  </header>
+
+  <div id="main">
+    <!-- ============ left rail ============ -->
+    <div class="rail" id="left">
+      <section>
+        <h2>Image</h2>
+        <div class="drop" id="drop">
+          <strong>Drop an image here</strong>
+          or click to choose a file
+        </div>
+        <input type="file" id="file" accept="image/*" class="hidden">
+        <div class="btns" style="margin-top:8px">
+          <button id="btn-sample" class="ghost">Load a test pattern</button>
+        </div>
+        <p class="note" id="img-info">No image loaded.</p>
+      </section>
+
+      <section>
+        <h2>Grid <em>blocks across the build</em></h2>
+        <div class="row">
+          <label for="gw">Width</label>
+          <input type="range" id="gw-r" min="8" max="512" step="1" value="128">
+          <input type="number" id="gw" min="1" max="1024" value="128">
+        </div>
+        <div class="row">
+          <label for="gh">Height</label>
+          <input type="range" id="gh-r" min="8" max="512" step="1" value="128" disabled>
+          <input type="number" id="gh" min="1" max="1024" value="128" disabled>
+        </div>
+        <label class="check"><input type="checkbox" id="lock-aspect" checked> Keep the image's proportions</label>
+        <div class="row">
+          <label for="resample">Sampling</label>
+          <select id="resample" class="grow"></select>
+        </div>
+      </section>
+
+      <section>
+        <h2>Adjust <em>before matching</em></h2>
+        <div class="row"><label for="brightness">Brightness</label><input type="range" id="brightness" min="-0.5" max="0.5" step="0.01" value="0"><span class="val" id="v-brightness">0</span></div>
+        <div class="row"><label for="contrast">Contrast</label><input type="range" id="contrast" min="-0.9" max="0.9" step="0.01" value="0"><span class="val" id="v-contrast">0</span></div>
+        <div class="row"><label for="saturation">Saturation</label><input type="range" id="saturation" min="-1" max="1.5" step="0.01" value="0"><span class="val" id="v-saturation">0</span></div>
+        <div class="row"><label for="gamma">Gamma</label><input type="range" id="gamma" min="0.3" max="2.5" step="0.01" value="1"><span class="val" id="v-gamma">1</span></div>
+        <div class="row"><label for="hue">Hue</label><input type="range" id="hue" min="-180" max="180" step="1" value="0"><span class="val" id="v-hue">0</span></div>
+        <div class="row"><label for="sharpen">Sharpen</label><input type="range" id="sharpen" min="0" max="1.5" step="0.01" value="0"><span class="val" id="v-sharpen">0</span></div>
+        <div class="row"><label for="posterize">Posterize</label><input type="range" id="posterize" min="0" max="16" step="1" value="0"><span class="val" id="v-posterize">off</span></div>
+        <div class="btns"><button id="btn-reset-adjust" class="ghost">Reset adjustments</button></div>
+      </section>
+
+      <section>
+        <h2>Matching</h2>
+        <div class="row"><label for="match">Colour match</label><select id="match" class="grow"></select></div>
+        <div class="row"><label for="dither">Dither</label><select id="dither" class="grow"></select></div>
+        <div class="row"><label for="dstrength">Strength</label><input type="range" id="dstrength" min="0" max="1" step="0.01" value="0.85"><span class="val" id="v-dstrength">.85</span></div>
+        <label class="check"><input type="checkbox" id="serp" checked> Serpentine scan (hides diffusion streaks)</label>
+        <div class="row"><label for="alpha">Cut out below</label><input type="range" id="alpha" min="0" max="255" step="1" value="128"><span class="val" id="v-alpha">128</span></div>
+        <p class="note">Pixels under that alpha are left empty, so transparent PNGs come out as cut-out shapes.</p>
+      </section>
+
+      <section>
+        <h2>Build</h2>
+        <div class="row"><label for="bmode">Shape</label><select id="bmode" class="grow"></select></div>
+        <div class="row"><label for="bdepth">Thickness</label><input type="range" id="bdepth" min="1" max="8" step="1" value="1"><span class="val" id="v-bdepth">1</span></div>
+        <div class="row" id="row-relief"><label for="brelief">Relief</label><input type="range" id="brelief" min="0" max="24" step="1" value="4"><span class="val" id="v-brelief">4</span></div>
+        <label class="check" id="row-invert"><input type="checkbox" id="binvert"> Dark comes forward instead</label>
+        <label class="check" id="row-fill"><input type="checkbox" id="bfill" checked> Fill in behind so it is solid</label>
+        <div class="row"><label for="maxtile">Tile size</label><input type="number" id="maxtile" min="8" max="64" value="64"><span class="note" style="margin:0">max 64 per structure</span></div>
+        <label class="check"><input type="checkbox" id="airfill"> Write air instead of leaving terrain</label>
+        <label class="check"><input type="checkbox" id="legacy"> Old block ids (pre-1.21.40 worlds)</label>
+        <div class="row"><label for="budget">Block budget</label><input type="number" id="budget" min="1000" max="20000000" step="1000" value="1000000"></div>
+        <p class="note" id="budget-note"></p>
+      </section>
+
+      <section>
+        <h2>Presets</h2>
+        <div class="row"><select id="preset" class="grow"></select></div>
+        <p class="note">Presets set the palette, dithering and sampling together. Everything stays editable afterwards.</p>
+      </section>
+    </div>
+
+    <!-- ============ stage ============ -->
+    <div id="stage">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" id="tab-2d" aria-selected="true">Blocks</button>
+        <button class="tab" role="tab" id="tab-3d" aria-selected="false">3D</button>
+        <button class="tab" role="tab" id="tab-src" aria-selected="false">Source</button>
+      </div>
+
+      <div class="view on" id="view-2d">
+        <canvas id="c2d"></canvas>
+        <div class="stage-tools">
+          <button id="btn-fit2d" class="ghost">Fit</button>
+          <button id="btn-grid" class="ghost">Grid lines</button>
+          <button id="btn-clear-paint" class="ghost">Clear painted</button>
+        </div>
+        <div class="overlay" id="hover">Drag to pan, scroll to zoom. Click a block in the palette to pick it up, then paint on the grid. Right-click erases.</div>
+        <div id="empty">
+          <h3>Nothing loaded yet</h3>
+          <p>Drop an image on the left, or load the test pattern to look around.</p>
+        </div>
+      </div>
+
+      <div class="view" id="view-3d">
+        <canvas id="c3d"></canvas>
+        <div class="stage-tools">
+          <button id="btn-frame" class="ghost">Frame</button>
+          <button id="btn-shot" class="ghost">Save view</button>
+        </div>
+        <div class="overlay" id="hint3d">Drag to orbit, shift-drag or right-drag to pan, scroll to zoom.</div>
+      </div>
+
+      <div class="view" id="view-src">
+        <canvas id="csrc"></canvas>
+        <div class="overlay">The image after adjustments, before it is squared off into blocks.</div>
+      </div>
+    </div>
+
+    <!-- ============ right rail ============ -->
+    <div class="rail" id="right">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" id="tab-pal" aria-selected="true">Palette</button>
+        <button class="tab" role="tab" id="tab-mat" aria-selected="false">Materials</button>
+      </div>
+
+      <div class="pane on" id="pane-pal">
+        <div class="pane-head">
+          <input type="text" id="psearch" placeholder="Filter blocks" spellcheck="false">
+          <div class="checks" id="groups" style="margin-top:9px"></div>
+          <div style="margin-top:9px" id="tagfilters"></div>
+          <div class="btns" style="margin-top:8px">
+            <button id="btn-all" class="ghost">All on</button>
+            <button id="btn-none" class="ghost">All off</button>
+            <button id="btn-calib" class="ghost">Use my textures</button>
+            <input type="file" id="calibfiles" accept="image/*" multiple class="hidden">
+          </div>
+          <p class="note" id="pal-note"></p>
+        </div>
+        <div class="pane-scroll blocklist" id="blocklist"></div>
+      </div>
+
+      <div class="pane" id="pane-mat">
+        <div class="pane-head">
+          <p class="note" style="margin:0">Counts for the current build. Shulker box = 27 stacks.</p>
+        </div>
+        <div class="pane-scroll" id="materials"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

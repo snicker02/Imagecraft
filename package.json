@@ -1,0 +1,16 @@
+{
+  "name": "imagecraft",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Turn an image into a Minecraft Bedrock build",
+  "scripts": {
+    "serve": "python3 -m http.server 8000",
+    "validate": "node tools/validate.mjs",
+    "smoke": "node tools/smoke.mjs",
+    "test": "node tools/validate.mjs && node tools/smoke.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^27.0.0"
+  }
+}
