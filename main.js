@@ -3,7 +3,7 @@
 import * as Pal from './engine/palette.js';
 import * as Pix from './engine/pixelize.js';
 import { mapToBlocks, mapError, DITHER_MODES, DEFAULT_MAP_OPTS } from './engine/mapper.js';
-import { voxelize, buildMesh, meshToObj, BUILD_MODES, DEFAULT_BUILD } from './engine/mesh.js';
+import { voxelize, buildMesh, BUILD_MODES, DEFAULT_BUILD } from './engine/mesh.js';
 import { Viewer } from './engine/renderer.js';
 import { MATCH_MODES } from './engine/color.js';
 import { buildStructure, splitVolume, fitsStructureBlock } from './engine/mcstructure.js';
@@ -854,10 +854,23 @@ function exportList() {
     Ex.blockListText(S.grid.counts, S.blocks, $('name').value), 'text/plain');
 }
 
-function exportObj() {
+async function exportObj() {
   if (!guard()) return;
   if (!S.mesh) return toast('The mesh is too big to export. Lower the grid size.', true);
-  Ex.download(`${Ex.safeName($('name').value)}.obj`, meshToObj(S.mesh, Ex.safeName($('name').value)), 'text/plain');
+  const btn = $('btn-obj');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Packing…';
+  try {
+    const name = Ex.safeName($('name').value);
+    const out = await Ex.buildObjZip(S.mesh, S.blocks, name);
+    Ex.download(`${name}_obj.zip`, out.bytes, 'application/zip');
+    toast(`OBJ, MTL and palette image for ${out.materials.length} block types. ` +
+      `Keep the three files together — the .obj on its own opens grey.`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
 }
 
 function exportStructure() {

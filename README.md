@@ -1,4 +1,4 @@
-# Imagecraft
+# Imagecraft 1.5.0
 
 Turn an image into a Minecraft build. Upload a picture, pixelize it to a block
 grid, match every cell to the closest real block, look at it in 3D, then export
@@ -6,6 +6,15 @@ a Bedrock `.mcpack` you can load straight into a world.
 
 No dependencies, no build step, WebGL1. Same layout as IFScraft: `index.html`
 + `main.js` + `engine/`.
+
+## Versions
+
+- **1.5.0** — OBJ export rewritten as OBJ + MTL + palette image in a zip.
+- **1.4.0** — Smooth, a block-unit Gaussian applied to the grid before matching.
+- **1.3.0** — Tiles .zip export, fit reporting, Fit to one structure.
+- **1.2.0** — Even tiling under 48 across, per-tile shrink-wrap, deflated packs.
+- **1.1.0** — Plane build shape with free tilt and turn.
+- **1.0.0** — First build.
 
 ## Running it
 
@@ -120,6 +129,12 @@ angle fits with room to spare.
   inside lists the offset, size and block count for every piece.
 - **.mcpack** — the same pieces as a behaviour pack, loaded with
   `/structure load`. Least clicking for a big build.
+- **OBJ .zip** — the mesh for a 3D program: `.obj`, `.mtl` and a palette PNG.
+  Keep the three together; the .obj names the .mtl and the .mtl names the PNG,
+  so a lone .obj opens untextured grey. Colour is written twice over — a Kd per
+  material and a one-texel-per-block image through map_Kd — because some
+  viewers shade only what is textured and others read only Kd. Y is up, one
+  unit is one block.
 
 ## Pack size
 

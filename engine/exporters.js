@@ -1,6 +1,7 @@
 // exporters.js — everything that leaves the browser as a file.
 
 import { zip, uuid4 } from './zip.js';
+import { meshToObj } from './mesh.js';
 import { buildStructure, splitVolume, loadCommands, SAFE_XZ, MAX_Y } from './mcstructure.js';
 
 export function download(name, data, mime = 'application/octet-stream') {
@@ -143,6 +144,53 @@ export function blockListCsv(counts, blocks) {
     out.push(`"${b ? b.name : id}",${b ? b.bedrock : id},${n},${(n / 64).toFixed(2)},${(n / 1728).toFixed(3)}`);
   }
   return out.join('\n') + '\n';
+}
+
+/**
+ * OBJ + MTL + palette PNG, zipped together. All three have to travel as a set:
+ * the OBJ names the MTL, and the MTL names the PNG, so a bare .obj opens grey.
+ */
+export async function buildObjZip(mesh, blocks, name) {
+  const { obj, mtl, materials, atlas, name: base } = meshToObj(mesh, blocks, safeName(name));
+  const png = await paletteAtlasBlob(materials, atlas);
+  const files = [
+    { name: `${base}.obj`, data: obj },
+    { name: `${base}.mtl`, data: mtl },
+    { name: atlas.file, data: new Uint8Array(await png.arrayBuffer()) },
+    {
+      name: 'readme.txt',
+      data: [
+        `${base} — ${materials.length} block types`,
+        '',
+        'Keep all three files in the same folder. The .obj points at the .mtl and',
+        'the .mtl points at the .png, so opening the .obj on its own gives an',
+        'untextured grey model.',
+        '',
+        'Colour is set two ways for compatibility: a Kd value per material, and a',
+        'one-texel-per-block palette image through map_Kd. Viewers that read',
+        'either one will show the build in colour.',
+        '',
+        'Y is up. One unit is one block.',
+        '',
+      ].join('\n'),
+    },
+  ];
+  return { bytes: await zip(files), materials, files: files.map(f => f.name) };
+}
+
+/** One texel per material, blown up so bilinear sampling cannot bleed between cells. */
+function paletteAtlasBlob(materials, atlas) {
+  const { cols, rows, cell } = atlas;
+  const c = document.createElement('canvas');
+  c.width = cols * cell; c.height = rows * cell;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  materials.forEach((m, i) => {
+    const cx = i % cols, cy = (i / cols) | 0;
+    ctx.fillStyle = `rgb(${m.rgb[0]},${m.rgb[1]},${m.rgb[2]})`;
+    ctx.fillRect(cx * cell, cy * cell, cell, cell);
+  });
+  return new Promise(res => c.toBlob(res, 'image/png'));
 }
 
 /** Flat PNG of the mapped grid at `scale` pixels per block. */

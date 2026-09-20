@@ -49,6 +49,8 @@ await new Promise(r => setTimeout(r, 30));
 
 console.log('boot');
 ok('no uncaught errors during boot', errors.length === 0, errors.join(' | '));
+ok('the version is shown in the bar', /^\d+\.\d+\.\d+$/.test($('version').textContent.trim()),
+  $('version').textContent);
 ok('palette rows rendered', window.document.querySelectorAll('.blockrow').length > 150,
   String(window.document.querySelectorAll('.blockrow').length));
 ok('group toggles rendered', window.document.querySelectorAll('[data-group]').length === 11);
@@ -196,7 +198,7 @@ ok('the build note says whether one structure will load',
 ok('tile size defaults under the structure block limit', Number($('maxtile').value) < 64, $('maxtile').value);
 ok('exports fire with the right filenames',
   saved.some(n => n.endsWith('_materials.txt')) && saved.some(n => n.endsWith('.mcstructure')) &&
-  saved.some(n => n.endsWith('.mcpack')) && saved.some(n => n.endsWith('.obj')) &&
+  saved.some(n => n.endsWith('.mcpack')) && saved.some(n => n.endsWith('_obj.zip')) &&
   saved.some(n => n.endsWith('_tiles.zip')), saved.join(', '));
 
 ok('still no uncaught errors', errors.length === 0, errors.join(' | '));

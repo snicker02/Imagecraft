@@ -381,10 +381,54 @@ section('voxels and mesh');
   const m3 = buildMesh(three, blocks);
   ok('interior faces are culled', m3.tris === 28, String(m3.tris));
   ok('vertex colours are 0..1', [...m1.data.slice(4, 7)].every(v => v >= 0 && v <= 1));
-  const obj = meshToObj(m1, 'cube');
-  ok('obj has 36 verts and 12 faces',
-    obj.split('\n').filter(l => l.startsWith('v ')).length === 36 &&
-    obj.split('\n').filter(l => l.startsWith('f ')).length === 12);
+  ok('faces carry their block and direction',
+    m1.faces === 6 && m1.faceBlock.length === 6 && m1.faceDir.length === 6 &&
+    [...m1.faceDir].sort().join() === '0,1,2,3,4,5');
+
+  // --- OBJ + MTL ---
+  const two2 = { sx: 2, sy: 1, sz: 1, cells: Int16Array.from([0, 3]), count: 2 };
+  const { obj, mtl, materials, atlas } = meshToObj(buildMesh(two2, blocks), blocks, 'Cube Test');
+  const line = (t, src = obj) => src.split('\n').filter(l => l.startsWith(t));
+  ok('obj names its material library', /^mtllib Cube_Test\.mtl$/m.test(obj));
+  ok('obj has no colour smuggled onto the vertex lines',
+    line('v ').every(l => l.trim().split(/\s+/).length === 4), line('v ')[0]);
+  ok('obj shares vertices instead of repeating them', line('v ').length === 12, String(line('v ').length));
+  ok('obj writes one normal per direction', line('vn ').length === 6);
+  ok('obj writes one texture coord per material', line('vt ').length === materials.length);
+  ok('obj groups faces under usemtl', line('usemtl').length === materials.length, String(line('usemtl').length));
+  ok('two blocks give two materials', materials.length === 2 &&
+    materials[0].id === blocks[0].id && materials[1].id === blocks[3].id);
+  ok('faces are quads with position/uv/normal', line('f ').every(l => {
+    const parts = l.trim().split(/\s+/).slice(1);
+    return parts.length === 4 && parts.every(p => /^\d+\/\d+\/\d+$/.test(p));
+  }), line('f ')[0]);
+  ok('every face index is in range', line('f ').every(l =>
+    l.trim().split(/\s+/).slice(1).every(p => {
+      const [v, t, n] = p.split('/').map(Number);
+      return v >= 1 && v <= line('v ').length && t >= 1 && t <= materials.length && n >= 1 && n <= 6;
+    })));
+  ok('face count matches the culled mesh', line('f ').length === 10, String(line('f ').length));
+
+  ok('mtl declares every material', line('newmtl', mtl).length === materials.length);
+  ok('mtl carries the real block colour', (() => {
+    const kd = mtl.split('\n').filter(l => l.startsWith('Kd '))[0].split(/\s+/).slice(1).map(Number);
+    return kd.every((v, i) => Math.abs(v - blocks[0].rgb[i] / 255) < 0.001);
+  })(), mtl.split('\n').filter(l => l.startsWith('Kd '))[0]);
+  ok('mtl points at the palette image', line('map_Kd', mtl).every(l => l.endsWith('Cube_Test_palette.png')));
+  ok('every material has a distinct texel', new Set(materials.map(m => `${m.u},${m.v}`)).size === materials.length);
+  ok('texel coords sit inside the atlas',
+    materials.every(m => m.u > 0 && m.u < 1 && m.v > 0 && m.v < 1));
+  ok('atlas is big enough for the materials', atlas.cols * atlas.rows >= materials.length);
+  {
+    // a real build: every used block gets a material, no face left unassigned
+    const g3 = mapToBlocks(ramp(20, 14), blocks, { dither: 'floyd' });
+    const mesh3 = buildMesh(voxelize(g3, { mode: 'relief', depth: 1, relief: 4 }), blocks);
+    const o3 = meshToObj(mesh3, blocks, 'relief');
+    ok('material count matches the blocks in play', o3.materials.length === g3.counts.size,
+      `${o3.materials.length} vs ${g3.counts.size}`);
+    ok('no face is left without a material',
+      o3.obj.split('\n').filter(l => l.startsWith('f ')).length === mesh3.faces);
+  }
 }
 
 // ---------------------------------------------------------------- nbt

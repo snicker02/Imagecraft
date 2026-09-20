@@ -218,7 +218,11 @@ export function buildMesh(vox, blocks) {
 
   const stride = 7;
   const data = new Float32Array(faces * 6 * stride);
-  let p = 0;
+  // which block and which direction each face belongs to, so an exporter can
+  // group faces into materials without re-walking the volume
+  const faceBlock = new Int16Array(faces);
+  const faceDir = new Uint8Array(faces);
+  let p = 0, fi = 0;
   const push = (x, y, z, s, c) => {
     data[p] = x; data[p + 1] = y; data[p + 2] = z; data[p + 3] = s;
     data[p + 4] = c[0] / 255; data[p + 5] = c[1] / 255; data[p + 6] = c[2] / 255;
@@ -229,25 +233,117 @@ export function buildMesh(vox, blocks) {
     const v = at(x, y, z);
     if (v < 0) continue;
     const col = (blocks[v] && blocks[v].rgb) || [255, 0, 255];
-    for (const f of FACES) {
+    for (let d = 0; d < FACES.length; d++) {
+      const f = FACES[d];
       if (at(x + f.n[0], y + f.n[1], z + f.n[2]) >= 0) continue;
       const q = f.v;
-      const tri = [0, 1, 2, 0, 2, 3];
-      for (const k of tri) push(x + q[k][0], y + q[k][1], z + q[k][2], f.s, col);
+      for (const k of [0, 1, 2, 0, 2, 3]) push(x + q[k][0], y + q[k][1], z + q[k][2], f.s, col);
+      faceBlock[fi] = v; faceDir[fi] = d; fi++;
     }
   }
-  return { data, verts: faces * 6, tris: faces * 2, stride };
+  return { data, verts: faces * 6, tris: faces * 2, faces, faceBlock, faceDir, stride };
 }
 
-/** Wavefront OBJ of the same mesh, one grey material (colours go in vertex colours). */
-export function meshToObj(mesh, name = 'imagecraft') {
-  const { data, verts, stride } = mesh;
-  const out = [`# ${name} — exported by Imagecraft`, `o ${name}`];
-  for (let i = 0; i < verts; i++) {
-    const o = i * stride;
-    out.push(`v ${data[o].toFixed(3)} ${data[o + 1].toFixed(3)} ${data[o + 2].toFixed(3)} ` +
-      `${data[o + 4].toFixed(4)} ${data[o + 5].toFixed(4)} ${data[o + 6].toFixed(4)}`);
+/**
+ * Wavefront OBJ + companion MTL.
+ *
+ * Colour goes in the material library, not in the vertex lines. Putting r g b
+ * after the xyz on a `v` line is an extension a couple of point-cloud tools
+ * understand and nearly every viewer ignores, which is how a coloured build
+ * ends up opening as a flat grey slab. Here each block becomes a named
+ * material with a Kd colour, and the faces are grouped under `usemtl`.
+ *
+ * Every material also points at the same small palette image through map_Kd,
+ * with one texel per block, because some viewers only shade what is textured
+ * and ignore Kd entirely. Between the two, colour survives everywhere.
+ *
+ * Returns { obj, mtl, materials, atlas } — the caller writes the PNG, since
+ * that needs a canvas.
+ */
+export function meshToObj(mesh, blocks, name = 'imagecraft') {
+  const { data, stride, faces, faceBlock, faceDir } = mesh;
+  const objName = String(name).replace(/[^\w.-]+/g, '_') || 'imagecraft';
+
+  // one material per block actually used, in palette order
+  const usedIds = [...new Set(Array.from(faceBlock.subarray(0, faces)))].sort((a, b) => a - b);
+  const cols = Math.max(1, Math.ceil(Math.sqrt(usedIds.length)));
+  const rows = Math.max(1, Math.ceil(usedIds.length / cols));
+  const materials = usedIds.map((pi, i) => {
+    const b = blocks[pi] || { id: 'unknown', name: 'Unknown', rgb: [255, 0, 255] };
+    const cx = i % cols, cy = (i / cols) | 0;
+    return {
+      index: pi, id: b.id, label: b.name, rgb: b.rgb,
+      // texel centre, with V flipped the way OBJ expects
+      u: (cx + 0.5) / cols, v: 1 - (cy + 0.5) / rows,
+    };
+  });
+  const matSlot = new Map(materials.map((m, i) => [m.index, i]));
+
+  // shared vertex positions, keyed on the integer lattice
+  const vi = new Map();
+  const verts = [];
+  const vertIndex = (x, y, z) => {
+    const key = (x * 2048 + y) * 2048 + z;
+    let i = vi.get(key);
+    if (i === undefined) { verts.push(x, y, z); i = verts.length / 3; vi.set(key, i); }
+    return i;
+  };
+
+  // faces bucketed by material so usemtl is written once per block
+  const buckets = materials.map(() => []);
+  for (let f = 0; f < faces; f++) {
+    const base = f * 6 * stride;
+    // the triangle pair was pushed as corners 0,1,2,0,2,3 — take the quad back
+    const corner = k => {
+      const o = base + k * stride;
+      return vertIndex(data[o], data[o + 1], data[o + 2]);
+    };
+    buckets[matSlot.get(faceBlock[f])].push([corner(0), corner(1), corner(2), corner(5), faceDir[f]]);
   }
-  for (let i = 0; i < verts; i += 3) out.push(`f ${i + 1} ${i + 2} ${i + 3}`);
-  return out.join('\n') + '\n';
+
+  const out = [
+    `# ${objName} — exported by Imagecraft`,
+    `# ${faces} faces, ${materials.length} block types`,
+    `mtllib ${objName}.mtl`,
+    `o ${objName}`,
+  ];
+  for (let i = 0; i < verts.length; i += 3) out.push(`v ${verts[i]} ${verts[i + 1]} ${verts[i + 2]}`);
+  for (const m of materials) out.push(`vt ${m.u.toFixed(6)} ${m.v.toFixed(6)}`);
+  for (const f of FACES) out.push(`vn ${f.n[0]} ${f.n[1]} ${f.n[2]}`);
+
+  materials.forEach((m, i) => {
+    const quads = buckets[i];
+    if (!quads.length) return;
+    out.push(`usemtl ${m.id}`, `g ${m.id}`);
+    const t = i + 1;
+    for (const [a, b, c, d, dir] of quads) {
+      const n = dir + 1;
+      out.push(`f ${a}/${t}/${n} ${b}/${t}/${n} ${c}/${t}/${n} ${d}/${t}/${n}`);
+    }
+  });
+
+  const mtl = [`# materials for ${objName}`, `# one per Minecraft block used`];
+  for (const m of materials) {
+    const [r, g, b] = m.rgb.map(v => (v / 255).toFixed(4));
+    mtl.push(
+      '',
+      `newmtl ${m.id}`,
+      `# ${m.label}`,
+      'Ka 0.0000 0.0000 0.0000',
+      `Kd ${r} ${g} ${b}`,
+      'Ks 0.0000 0.0000 0.0000',
+      'Ns 0',
+      'd 1.0',
+      'illum 1',
+      `map_Kd ${objName}_palette.png`
+    );
+  }
+
+  return {
+    obj: out.join('\n') + '\n',
+    mtl: mtl.join('\n') + '\n',
+    materials,
+    atlas: { cols, rows, cell: 8, file: `${objName}_palette.png` },
+    name: objName,
+  };
 }
