@@ -183,3 +183,7 @@ or fewer are always scanned exhaustively. `Lab (CIE76)` is the sensible default.
 
 Dithering deliberately raises per-pixel error to lower local error — that is the
 trade, and `tools/validate.mjs` asserts both halves of it.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
